@@ -24,6 +24,28 @@ function cleanId(val) {
 }
 
 /**
+ * แปลงวันที่ให้อยู่ในรูปแบบ YYYY-MM-DD สม่ำเสมอ
+ */
+function normalizeDateStr(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'Asia/Bangkok', 'yyyy-MM-dd');
+  }
+  const s = String(val).trim();
+  const mIso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (mIso) {
+    return `${mIso[1]}-${String(mIso[2]).padStart(2, '0')}-${String(mIso[3]).padStart(2, '0')}`;
+  }
+  const mThai = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (mThai) {
+    let year = parseInt(mThai[3], 10);
+    if (year > 2500) year -= 543;
+    return `${year}-${String(mThai[2]).padStart(2, '0')}-${String(mThai[1]).padStart(2, '0')}`;
+  }
+  return s.substring(0, 10);
+}
+
+/**
  * ระบุพิกัด GPS อัตโนมัติตามสาขาของพนักงาน หากพิกัดเดิมติดอยู่ที่กรุงเทพฯ กลาง (13.7563) หรือว่างเปล่า
  */
 function resolveBranchLocation(empId, empName, dept, currentLat, currentLng) {
@@ -190,6 +212,92 @@ function setupClockOutGpsColumnsInSheet(targetSheet) {
 }
 
 /**
+ * รวมแถวเวลาเข้าและออกงานของพนักงานคนเดียวกันในวันเดียวกันให้อยู่ในบรรทัดเดียวกันอัตโนมัติ
+ * (กรณีตอกเข้าแล้วระบบแยกไปคนละแถว จะนำเวลาออกและพิกัดมารวมแถวเดียวกับเวลาเข้า)
+ */
+function mergeSplitAttendanceRows(targetSheet) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = targetSheet || ss.getSheetByName(SHEET_ATTENDANCE);
+  if (!sheet) return 0;
+
+  const cols = getAttendanceColumnMapping(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 2) return 0;
+
+  const data = sheet.getDataRange().getValues();
+  const groups = {};
+  let mergedCount = 0;
+  const rowsToDelete = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const rowIdx = i + 1;
+    const empId = cleanId(data[i][cols.empIdCol - 1]);
+    const dateStr = normalizeDateStr(data[i][cols.dateCol - 1]);
+    if (!empId || !dateStr) continue;
+
+    const checkIn = data[i][cols.checkInCol - 1];
+    const checkOut = data[i][cols.checkOutCol - 1];
+    const key = `${empId}_${dateStr}`;
+
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      rowIdx: rowIdx,
+      dataIndex: i,
+      checkIn: checkIn,
+      checkOut: checkOut,
+      hasIn: checkIn && String(checkIn).trim() !== '' && String(checkIn).trim() !== '-',
+      hasOut: checkOut && String(checkOut).trim() !== '' && String(checkOut).trim() !== '-'
+    });
+  }
+
+  for (const key in groups) {
+    const list = groups[key];
+    if (list.length > 1) {
+      // Find row with checkIn
+      const inItem = list.find(item => item.hasIn && !item.hasOut) || list.find(item => item.hasIn);
+      // Find row with checkOut
+      const outItem = list.find(item => item.hasOut && item !== inItem);
+
+      if (inItem && outItem) {
+        const outRowData = data[outItem.dataIndex];
+        
+        // 1. Set Check Out Time in inItem row
+        sheet.getRange(inItem.rowIdx, cols.checkOutCol).setNumberFormat('@').setValue(outRowData[cols.checkOutCol - 1]);
+
+        // 2. Set Check Out GPS if columns exist
+        if (cols.outLatCol > 0 && cols.outLngCol > 0) {
+          const outLat = outRowData[cols.outLatCol - 1] || outRowData[cols.inLatCol - 1];
+          const outLng = outRowData[cols.outLngCol - 1] || outRowData[cols.inLngCol - 1];
+          if (outLat && outLng) {
+            sheet.getRange(inItem.rowIdx, cols.outLatCol).setValue(outLat);
+            sheet.getRange(inItem.rowIdx, cols.outLngCol).setValue(outLng);
+            if (cols.outMapCol > 0) {
+              sheet.getRange(inItem.rowIdx, cols.outMapCol).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+            }
+          }
+        }
+
+        // 3. Clean up note (remove 'ไม่ได้ตอกเข้า')
+        const inNote = String(data[inItem.dataIndex][cols.noteCol - 1] || '');
+        const cleanNote = inNote.replace(' (ไม่ได้ตอกเข้า)', '').replace('ไม่ได้ตอกเข้า', '').trim();
+        sheet.getRange(inItem.rowIdx, cols.noteCol).setValue(cleanNote);
+
+        rowsToDelete.push(outItem.rowIdx);
+        mergedCount++;
+      }
+    }
+  }
+
+  // Delete from bottom to top
+  rowsToDelete.sort((a, b) => b - a);
+  for (const r of rowsToDelete) {
+    sheet.deleteRow(r);
+  }
+
+  return mergedCount;
+}
+
+/**
  * เมนูพิเศษบนแถบเมนูด้านบนของ Google Sheet
  * เมื่อเปิดไฟล์ Google Sheet จะมีเมนู "⚡ TimeTrack" ให้กดอัปเดตรหัสผ่านได้ทันที
  */
@@ -197,6 +305,7 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('⚡ TimeTrack (v2.5)')
+      .addItem('🔗 รวมแถวเข้า-ออกงานให้อยู่บรรทัดเดียวกัน (Merge Rows)', 'mergeSplitAttendanceRows')
       .addItem('📍 เพิ่มคอลัมน์พิกัดเวลาออกงาน (ละติจูดออก, ลองจิจูดออก)', 'setupClockOutGpsColumnsInSheet')
       .addItem('📍 ตรวจสอบและอัปเดตพิกัดสาขาในตารางบันทึกเวลา', 'fixBranchCoordinatesInSheet')
       .addItem('🔑 แสดง/เติมรหัสผ่านในช่อง password (คอลัมน์ D)', 'fillPasswordsInSheet')
@@ -562,12 +671,13 @@ function doGet(e) {
 
     // 2. ดึงข้อมูลบันทึกเวลา
     const attSheet = ss.getSheetByName(SHEET_ATTENDANCE);
-    const attData = attSheet.getDataRange().getValues();
     let cols = getAttendanceColumnMapping(attSheet);
     if (cols.outLatCol === -1) {
       setupClockOutGpsColumnsInSheet(attSheet);
       cols = getAttendanceColumnMapping(attSheet);
     }
+    mergeSplitAttendanceRows(attSheet);
+    const attData = attSheet.getDataRange().getValues();
     const attendances = [];
     for (let i = 1; i < attData.length; i++) {
       if (attData[i][cols.idCol - 1]) {
@@ -778,53 +888,83 @@ function doPost(e) {
       let updated = false;
 
       // ค้นหาแถวของพนักงานในวันนี้ (เริ่มค้นจากแถวล่าสุดย้อนขึ้นมา)
-      for (let i = rows.length - 1; i >= 1; i--) {
-        const rowDate = rows[i][cols.dateCol - 1];
-        let dateStr = rowDate;
-        if (rowDate instanceof Date) {
-          const y = rowDate.getFullYear();
-          const m = String(rowDate.getMonth() + 1).padStart(2, '0');
-          const d = String(rowDate.getDate()).padStart(2, '0');
-          dateStr = `${y}-${m}-${d}`;
-        }
+      let targetRowIndex = -1;
 
-        const rowEmpId = cleanId(rows[i][cols.empIdCol - 1]);
+      // 1. ค้นหาจาก ID บันทึกก่อน (ถ้ามีส่งมา)
+      const searchId = String(data.id || (data.record && data.record.id) || '').trim();
+      if (searchId) {
+        for (let i = rows.length - 1; i >= 1; i--) {
+          if (String(rows[i][cols.idCol - 1] || '').trim() === searchId) {
+            targetRowIndex = i + 1;
+            break;
+          }
+        }
+      }
+
+      // 2. ถ้าไม่พบจาก ID ให้ค้นหาจาก รหัสพนักงาน + วันที่
+      if (targetRowIndex === -1) {
         const targetEmpId = cleanId(data.empId);
+        const targetDate = normalizeDateStr(data.date);
 
-        if (rowEmpId === targetEmpId && dateStr === data.date) {
-          // อัปเดตเวลาออก
-          attSheet.getRange(i + 1, cols.checkOutCol).setNumberFormat('@').setValue(data.checkOut);
-          if (data.photo && cols.photoCol > 0) {
-            let pStr = String(data.photo);
-            if (pStr.length > 45000) pStr = pStr.substring(0, 45000);
-            attSheet.getRange(i + 1, cols.photoCol).setValue(pStr);
-          }
+        for (let i = rows.length - 1; i >= 1; i--) {
+          const rowEmpId = cleanId(rows[i][cols.empIdCol - 1]);
+          const rowDateStr = normalizeDateStr(rows[i][cols.dateCol - 1]);
 
-          const outGpsObj = data.checkOutGPS || data.gps;
-          let outLat = outGpsObj && outGpsObj.lat ? String(outGpsObj.lat) : '';
-          let outLng = outGpsObj && outGpsObj.lng ? String(outGpsObj.lng) : '';
-          const resolved = resolveBranchLocation(data.empId, rows[i][cols.empNameCol - 1], rows[i][cols.deptCol - 1], outLat, outLng);
-          outLat = resolved.lat;
-          outLng = resolved.lng;
-
-          // บันทึกพิกัดออกงานลงในคอลัมน์ออกงานโดยเฉพาะ (ไม่ทับพิกัดเข้างาน)
-          if (cols.outLatCol > 0 && cols.outLngCol > 0) {
-            attSheet.getRange(i + 1, cols.outLatCol).setValue(outLat);
-            attSheet.getRange(i + 1, cols.outLngCol).setValue(outLng);
-            if (cols.outMapCol > 0) {
-              attSheet.getRange(i + 1, cols.outMapCol).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+          if (rowEmpId === targetEmpId && rowDateStr === targetDate) {
+            const hasCheckIn = !!rows[i][cols.checkInCol - 1];
+            const hasCheckOut = !!rows[i][cols.checkOutCol - 1];
+            if (hasCheckIn && !hasCheckOut) {
+              targetRowIndex = i + 1;
+              break;
             }
-          } else if (!rows[i][cols.inLatCol - 1] && outLat && outLng) {
-            // กรณีเป็นตารางเดิม 14 คอลัมน์ และยังไม่มีพิกัดเข้างาน จึงเติมพิกัดให้
-            attSheet.getRange(i + 1, cols.inLatCol).setValue(outLat);
-            attSheet.getRange(i + 1, cols.inLngCol).setValue(outLng);
-            if (cols.inMapCol > 0) {
-              attSheet.getRange(i + 1, cols.inMapCol).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+            if (targetRowIndex === -1) {
+              targetRowIndex = i + 1;
             }
           }
-          updated = true;
-          break;
         }
+      }
+
+      if (targetRowIndex > 0) {
+        // อัปเดตเวลาออกในแถวเดิม (อยู่บรรทัดเดียวกันเสมอ)
+        attSheet.getRange(targetRowIndex, cols.checkOutCol).setNumberFormat('@').setValue(data.checkOut);
+        if (data.photo && cols.photoCol > 0) {
+          let pStr = String(data.photo);
+          if (pStr.length > 45000) pStr = pStr.substring(0, 45000);
+          attSheet.getRange(targetRowIndex, cols.photoCol).setValue(pStr);
+        }
+
+        const outGpsObj = data.checkOutGPS || data.gps;
+        let outLat = outGpsObj && outGpsObj.lat ? String(outGpsObj.lat) : (data.outLat || '');
+        let outLng = outGpsObj && outGpsObj.lng ? String(outGpsObj.lng) : (data.outLng || '');
+        const resolved = resolveBranchLocation(data.empId, rows[targetRowIndex - 1][cols.empNameCol - 1], rows[targetRowIndex - 1][cols.deptCol - 1], outLat, outLng);
+        outLat = resolved.lat;
+        outLng = resolved.lng;
+
+        // บันทึกพิกัดออกงานลงในคอลัมน์ออกงานโดยเฉพาะ (ไม่ทับพิกัดเข้างาน)
+        if (cols.outLatCol > 0 && cols.outLngCol > 0) {
+          attSheet.getRange(targetRowIndex, cols.outLatCol).setValue(outLat);
+          attSheet.getRange(targetRowIndex, cols.outLngCol).setValue(outLng);
+          if (cols.outMapCol > 0) {
+            attSheet.getRange(targetRowIndex, cols.outMapCol).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+          }
+        } else if (!rows[targetRowIndex - 1][cols.inLatCol - 1] && outLat && outLng) {
+          attSheet.getRange(targetRowIndex, cols.inLatCol).setValue(outLat);
+          attSheet.getRange(targetRowIndex, cols.inLngCol).setValue(outLng);
+          if (cols.inMapCol > 0) {
+            attSheet.getRange(targetRowIndex, cols.inMapCol).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+          }
+        }
+
+        // ล้างคำว่า 'ไม่ได้ตอกเข้า' หากมีเวลาเข้า
+        const inTime = rows[targetRowIndex - 1][cols.checkInCol - 1];
+        if (inTime && cols.noteCol > 0) {
+          const currentNote = String(rows[targetRowIndex - 1][cols.noteCol - 1] || '');
+          if (currentNote.includes('ไม่ได้ตอกเข้า')) {
+            attSheet.getRange(targetRowIndex, cols.noteCol).setValue(currentNote.replace(' (ไม่ได้ตอกเข้า)', '').replace('ไม่ได้ตอกเข้า', '').trim());
+          }
+        }
+
+        updated = true;
       }
 
       // ถ้าไม่พบรายการเข้างาน ให้สร้างแถวใหม่สำหรับการออกงาน
@@ -876,6 +1016,8 @@ function doPost(e) {
           ]);
         }
       }
+
+      mergeSplitAttendanceRows(attSheet);
 
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', action: 'clockOut' }))
         .setMimeType(ContentService.MimeType.JSON);

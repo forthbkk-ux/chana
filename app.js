@@ -105,6 +105,89 @@ function getTodayDateString(d = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeDateStr(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(val).trim();
+  const mIso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (mIso) {
+    return `${mIso[1]}-${String(mIso[2]).padStart(2, '0')}-${String(mIso[3]).padStart(2, '0')}`;
+  }
+  const mThai = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (mThai) {
+    let year = parseInt(mThai[3], 10);
+    if (year > 2500) year -= 543;
+    return `${year}-${String(mThai[2]).padStart(2, '0')}-${String(mThai[1]).padStart(2, '0')}`;
+  }
+  return s.substring(0, 10);
+}
+
+function cleanEmployeeId(id) {
+  return String(id || '')
+    .replace(/^['*^\s\u0E31\u0E34\u0E35\u0E36\u0E37\u0E38\u0E39\u0E47\u0E48\u0E49\u0E4A\u0E4B\u0E4C\u0E4D\u0E4E]+/, '')
+    .trim()
+    .toLowerCase();
+}
+
+function isSameEmpId(id1, id2) {
+  if (id1 === undefined || id2 === undefined || id1 === null || id2 === null) return false;
+  return cleanEmployeeId(id1) === cleanEmployeeId(id2);
+}
+
+function isSameDate(d1, d2) {
+  if (!d1 || !d2) return false;
+  return normalizeDateStr(d1) === normalizeDateStr(d2);
+}
+
+/**
+ * รวมรายการบันทึกเวลาเข้า-ออกงานของพนักงานคนเดียวกันในวันเดียวกันให้มาอยู่ในบรรทัดเดียวกัน
+ */
+function mergeSplitAttendances(records) {
+  if (!Array.isArray(records)) return [];
+  const mergedMap = new Map();
+
+  records.forEach(item => {
+    if (!item) return;
+    const empKey = cleanEmployeeId(item.empId);
+    const dateKey = normalizeDateStr(item.date);
+    const key = `${empKey}_${dateKey}`;
+
+    if (!mergedMap.has(key)) {
+      mergedMap.set(key, { ...item, date: dateKey });
+    } else {
+      const existing = mergedMap.get(key);
+
+      // Merge checkIn and checkOut into the same single row
+      if (!existing.checkIn && item.checkIn) {
+        existing.checkIn = item.checkIn;
+        if (item.checkInGPS) existing.checkInGPS = item.checkInGPS;
+      }
+      if (!existing.checkOut && item.checkOut) {
+        existing.checkOut = item.checkOut;
+        if (item.checkOutGPS) existing.checkOutGPS = item.checkOutGPS;
+      }
+      if (item.gps && !existing.gps) existing.gps = item.gps;
+      if (item.photo && !existing.photo) existing.photo = item.photo;
+      if (!existing.location && item.location) existing.location = item.location;
+
+      // Clean up note
+      if (existing.checkIn && existing.note && existing.note.includes('ไม่ได้ตอกเข้า')) {
+        existing.note = existing.note.replace(' (ไม่ได้ตอกเข้า)', '').replace('ไม่ได้ตอกเข้า', '').trim();
+      }
+      if (item.note && !existing.note) {
+        existing.note = item.note;
+      }
+    }
+  });
+
+  return Array.from(mergedMap.values());
+}
+
 function formatThaiDate(dateObj) {
   const thaiDays = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
   const thaiMonths = [
@@ -374,10 +457,10 @@ function syncUserAccountsWithEmployees() {
   });
 
   // Remove any attendance records for admin
-  state.attendances = (state.attendances || []).filter(a => {
+  state.attendances = mergeSplitAttendances((state.attendances || []).filter(a => {
     const id = String(a.empId || '').trim().toLowerCase();
     return id !== 'chana.p' && id !== 'admin';
-  });
+  }));
 
   // Remove generic 'admin' account so chana.p is the ONLY Admin
   state.users = state.users.filter(u => u.username && u.username.toLowerCase() !== 'admin');
@@ -778,6 +861,7 @@ async function fetchGoogleSheetData(silent = false) {
           if (!a.gps) a.gps = a.checkInGPS || a.checkOutGPS || null;
           return a;
         });
+        state.attendances = mergeSplitAttendances(state.attendances);
       }
       if (data.settings) {
         state.settings = {
@@ -2536,7 +2620,7 @@ async function handleClockIn() {
   }
 
   const todayStr = getTodayDateString();
-  const existing = state.attendances.find(a => a.empId === emp.id && a.date === todayStr);
+  const existing = state.attendances.find(a => isSameEmpId(a.empId, emp.id) && isSameDate(a.date, todayStr));
 
   if (existing && existing.checkIn) {
     playSound('warning');
@@ -2632,7 +2716,9 @@ async function handleClockOut() {
   }
 
   const todayStr = getTodayDateString();
-  const existing = state.attendances.find(a => a.empId === emp.id && a.date === todayStr);
+  // ค้นหารายการลงเวลาของพนักงานคนนี้ในวันนี้ (优先 แถวที่มีเวลาเข้าแล้วและยังไม่มีเวลาออก)
+  let existing = state.attendances.find(a => isSameEmpId(a.empId, emp.id) && isSameDate(a.date, todayStr) && a.checkIn && !a.checkOut)
+              || state.attendances.find(a => isSameEmpId(a.empId, emp.id) && isSameDate(a.date, todayStr));
 
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, '0');
@@ -2706,7 +2792,12 @@ async function handleClockOut() {
     }
     existing.checkOutGPS = recordGPS;
     existing.gps = existing.checkInGPS || recordGPS;
+    if (existing.checkIn && existing.note && existing.note.includes('ไม่ได้ตอกเข้า')) {
+      existing.note = existing.note.replace(' (ไม่ได้ตอกเข้า)', '').replace('ไม่ได้ตอกเข้า', '').trim();
+    }
     updateAttendanceRecord(existing);
+    state.attendances = mergeSplitAttendances(state.attendances);
+    saveLocalData();
   }
 
   playSound('success');
