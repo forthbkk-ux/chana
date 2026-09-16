@@ -3809,11 +3809,43 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-snap-photo')?.addEventListener('click', capturePhoto);
   document.getElementById('btn-clear-photo')?.addEventListener('click', clearCapturedPhoto);
 
-  // GPS Refresh & Manual Adjust Buttons
-  document.getElementById('btn-refresh-gps')?.addEventListener('click', () => {
-    fetchGPSLocation();
-    showToast('กำลังรีเฟรช GPS', 'กำลังค้นหาตำแหน่งดาวเทียมปัจจุบัน...', 'warning');
-  });
+  // GPS Live Sync & Manual Adjust Buttons
+  const triggerSyncCurrentGPS = async () => {
+    const btn = document.getElementById('btn-sync-current-gps') || document.getElementById('btn-refresh-gps');
+    const icon = document.getElementById('icon-sync-current-gps');
+    const label = document.getElementById('text-sync-current-gps');
+    if (icon) icon.classList.add('animate-spin');
+    if (label) label.textContent = 'กำลังค้นหาพิกัด...';
+    if (btn) btn.disabled = true;
+
+    showToast('กำลังค้นหาพิกัด...', 'กำลังเชื่อมต่อสัญญาณดาวเทียม GPS และเครือข่ายสด...', 'warning');
+
+    try {
+      const fresh = await acquireFreshGPS();
+      if (fresh && fresh.lat && fresh.lng) {
+        updateGPSUI(fresh.lat, fresh.lng, fresh.accuracy, false);
+        showToast('ซิงค์พิกัดปัจจุบันสำเร็จ!', `📍 พิกัด: ${fresh.lat}, ${fresh.lng} (±${fresh.accuracy || 15}ม.)`, 'success');
+        if (typeof playSound === 'function') playSound('success');
+      } else {
+        fetchGPSLocation();
+        showToast('อัปเดตพิกัดแล้ว', 'รีเฟรชสัญญาณพิกัดปัจจุบันเรียบร้อย', 'info');
+      }
+    } catch (err) {
+      console.warn('Manual sync GPS error:', err);
+      fetchGPSLocation();
+      showToast('รีเฟรชสัญญาณแล้ว', 'ระบบได้ทำการค้นหาพิกัดดาวเทียมใหม่ให้แล้ว', 'info');
+    } finally {
+      setTimeout(() => {
+        if (icon) icon.classList.remove('animate-spin');
+        if (label) label.textContent = 'ซิงค์พิกัดปัจจุบัน';
+        if (btn) btn.disabled = false;
+        if (window.lucide) lucide.createIcons();
+      }, 500);
+    }
+  };
+
+  document.getElementById('btn-sync-current-gps')?.addEventListener('click', triggerSyncCurrentGPS);
+  document.getElementById('btn-refresh-gps')?.addEventListener('click', triggerSyncCurrentGPS);
   document.getElementById('btn-adjust-gps')?.addEventListener('click', openAdjustGPSDialog);
 
   // Punch Button Listeners

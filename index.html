@@ -240,14 +240,14 @@
                 <span id="gps-status-text" class="text-[11px] text-slate-500 font-mono truncate">กำลังตรวจสอบสัญญาณ GPS...</span>
               </div>
             </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-              <span id="gps-auto-pill" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>ซิงค์สด</span>
-              </span>
-              <button type="button" id="btn-adjust-gps" title="เปลี่ยน/ระบุพิกัดสถานที่ลงเวลา" class="px-2 py-1 text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 cursor-pointer">
+            <div class="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap justify-end">
+              <button type="button" id="btn-sync-current-gps" title="คลิกเพื่อดึงพิกัดปัจจุบันสดจากอุปกรณ์ทันที" class="px-2.5 py-1 text-emerald-800 bg-emerald-100 hover:bg-emerald-200 active:scale-95 border border-emerald-300 rounded-lg transition font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer">
+                <i data-lucide="refresh-cw" id="icon-sync-current-gps" class="w-3.5 h-3.5 text-emerald-700"></i>
+                <span id="text-sync-current-gps">ซิงค์พิกัดปัจจุบัน</span>
+              </button>
+              <button type="button" id="btn-adjust-gps" title="เลือกสาขาหรือระบุพิกัดสถานที่ลงเวลา" class="px-2 py-1 text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 cursor-pointer">
                 <i data-lucide="crosshair" class="w-3.5 h-3.5 text-sky-600"></i>
-                <span>พิกัดสถานที่</span>
+                <span>เลือกพิกัด</span>
               </button>
               <a id="btn-open-live-map" href="#" target="_blank" title="ดูใน Google Maps" class="hidden px-2 py-1 text-sky-600 hover:bg-sky-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 border border-sky-100">
                 <i data-lucide="map" class="w-3.5 h-3.5"></i>
