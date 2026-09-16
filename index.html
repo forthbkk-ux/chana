@@ -102,10 +102,14 @@
             <i data-lucide="cloud" class="w-5 h-5"></i>
             <span id="cloud-indicator-dot" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500"></span>
           </button>
-          <button id="btn-open-employees" title="จัดการพนักงานและรหัสผ่าน" class="admin-only p-2 text-slate-600 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition border border-slate-200 hover:border-sky-300">
+          <button id="btn-open-schedule" title="กำหนดเวลาเข้า-ออกงานพนักงาน" class="admin-only flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-xl transition border border-sky-200 hover:border-sky-300 cursor-pointer">
+            <i data-lucide="clock" class="w-4 h-4 text-sky-600"></i>
+            <span class="hidden sm:inline">กำหนดเวลาพนักงาน</span>
+          </button>
+          <button id="btn-open-employees" title="จัดการรายชื่อพนักงานและเวลาทำงาน" class="admin-only p-2 text-slate-600 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition border border-slate-200 hover:border-sky-300 cursor-pointer">
             <i data-lucide="users" class="w-5 h-5"></i>
           </button>
-          <button id="btn-open-settings" title="ตั้งค่าเวลาและระบบ" class="admin-only p-2 text-slate-600 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition border border-slate-200 hover:border-sky-300">
+          <button id="btn-open-settings" title="ตั้งค่าเวลาและระบบ" class="admin-only p-2 text-slate-600 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition border border-slate-200 hover:border-sky-300 cursor-pointer">
             <i data-lucide="settings" class="w-5 h-5"></i>
           </button>
           <button onclick="window.print()" title="พิมพ์รายงาน" class="hidden md:flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-xs transition">
@@ -139,18 +143,18 @@
     <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
       
       <!-- Card 1: พนักงานทั้งหมด -->
-      <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+      <div id="kpi-card-employees" class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative overflow-hidden cursor-pointer group" title="คลิกเพื่อดูกำหนดเวลาและรายชื่อพนักงาน">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-xs sm:text-sm font-medium text-slate-500">พนักงานทั้งหมด</p>
+            <p class="text-xs sm:text-sm font-medium text-slate-500 group-hover:text-sky-600 transition-colors">พนักงานทั้งหมด</p>
             <h3 id="kpi-total-employees" class="text-2xl sm:text-3xl font-bold text-slate-900 mt-1 font-mono-num">0</h3>
           </div>
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-sky-50 group-hover:text-sky-600 transition-colors">
             <i data-lucide="users" class="w-5 h-5 sm:w-6 sm:h-6"></i>
           </div>
         </div>
         <div class="mt-3 flex items-center text-xs text-slate-500">
-          <span class="text-indigo-600 font-semibold mr-1">ในระบบ</span> พนักงานประจำและสัญญา
+          <span class="text-indigo-600 font-semibold mr-1">ในระบบ</span> พนักงานประจำและสัญญา (คลิกเพื่อดูเวลา)
         </div>
       </div>
 
@@ -562,7 +566,7 @@
               <th scope="col" class="px-3 py-3.5 text-emerald-700">เวลาเข้า</th>
               <th scope="col" class="px-3 py-3.5 text-rose-700">เวลาออก</th>
               <th scope="col" class="px-3 py-3.5">สถานที่</th>
-              <th scope="col" class="px-3 py-3.5">พิกัด GPS</th>
+              <th scope="col" class="px-3 py-3.5">พิกัด GPS (เข้า - ออก)</th>
               <th scope="col" class="px-3 py-3.5">สถานะ</th>
               <th scope="col" class="px-3 py-3.5 text-right no-print">จัดการ</th>
             </tr>
@@ -762,19 +766,87 @@
     </div>
   </div>
 
-  <!-- MODAL 1: Employee Management Modal -->
+  <!-- MODAL 0: Dedicated Employee Schedule & Roster Modal (หน้าต่างกำหนดเวลาทำงานและรายชื่อพนักงาน - ตรงที่วง) -->
+  <div id="modal-employee-roster" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden transition-opacity">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center shadow-xs">
+            <i data-lucide="clock" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-lg text-slate-800">กำหนดเวลาทำงานและรายชื่อพนักงาน</h3>
+              <span id="roster-count-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-700">0 คน</span>
+            </div>
+            <p class="text-xs text-slate-500">กำหนดเวลาเข้างาน-ออกงานรายบุคคล และจัดการรหัสผ่านพนักงาน</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btn-roster-open-add-emp" class="px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs cursor-pointer">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">เพิ่มพนักงานใหม่</span>
+          </button>
+          <button class="btn-close-modal p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Cloud Sync & Search / Filter Toolbar -->
+      <div class="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input type="text" id="input-search-roster" placeholder="ค้นหาชื่อ, แผนก, รหัสพนักงาน หรือสาขา..." class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-sky-500">
+        </div>
+        <div class="flex items-center gap-1.5 text-[11px] text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200 shrink-0">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>ซิงค์ Google Sheets (แท็บ <strong>"รายชื่อพนักงาน"</strong>)</span>
+          <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600 ml-1"></i>
+        </div>
+      </div>
+
+      <!-- Quick Hint Banner -->
+      <div class="mt-2.5 px-3 py-2 bg-sky-50/60 border border-sky-200 rounded-xl flex items-center justify-between text-xs text-sky-900">
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="info" class="w-4 h-4 text-sky-600 shrink-0"></i>
+          <span>คลิกปุ่ม <strong>"กำหนดเวลา"</strong> ที่พนักงานเพื่อตั้งเวลาเข้า-ออกงานเฉพาะบุคคล</span>
+        </div>
+        <button type="button" id="btn-roster-open-settings" class="text-sky-700 hover:text-sky-900 underline font-semibold text-[11px] cursor-pointer">
+          ตั้งค่าเวลาส่วนกลาง
+        </button>
+      </div>
+
+      <!-- Employee List Container (ตรงที่วง - แสดงเต็มหน้าต่างอย่างกว้างขวาง สวยงาม) -->
+      <div class="flex-1 overflow-y-auto mt-3 space-y-2 pr-1 min-h-[260px]" id="employee-roster-list">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 1: Add Employee & Admin Settings Modal -->
   <div id="modal-employees" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden transition-opacity">
     <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between pb-3 border-b border-slate-100">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
-            <i data-lucide="users" class="w-5 h-5"></i>
+            <i data-lucide="user-plus" class="w-5 h-5"></i>
           </div>
-          <h3 class="font-bold text-lg text-slate-800">จัดการรายชื่อพนักงานและรหัสผ่าน</h3>
+          <div>
+            <h3 class="font-bold text-lg text-slate-800">เพิ่มพนักงานใหม่</h3>
+            <p class="text-xs text-slate-500">สร้างบัญชีพนักงานและกำหนดเวลาทำงานเริ่มต้น</p>
+          </div>
         </div>
-        <button class="btn-close-modal p-1.5 text-slate-400 hover:text-slate-700 rounded-lg">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btn-emp-open-roster" class="text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-sky-600"></i>
+            <span>ดูรายชื่อและกำหนดเวลา</span>
+          </button>
+          <button class="btn-close-modal p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Cloud Sync Indicator for Employees -->
@@ -788,22 +860,74 @@
 
       <!-- Add New Employee Form -->
       <form id="form-add-employee" class="mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-        <p class="text-xs font-bold text-slate-700">เพิ่มพนักงานใหม่</p>
-        <div class="grid grid-cols-2 gap-2">
-          <input type="text" id="new-emp-id" placeholder="รหัสพนักงาน (เช่น EMP-007)" required class="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
-          <input type="text" id="new-emp-name" placeholder="ชื่อ-นามสกุล" required class="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-bold text-slate-700">ข้อมูลพนักงานใหม่</p>
+          <span class="text-[10px] text-slate-400">กำหนดเวลาทำงานรายบุคคลได้</span>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <input type="text" id="new-emp-dept" placeholder="แผนก (เช่น ฝ่ายขาย)" required class="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
-          <input type="text" id="new-emp-password" placeholder="รหัสผ่าน (เริ่มต้น 1234)" class="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+          <div>
+            <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">รหัสพนักงาน</label>
+            <input type="text" id="new-emp-id" placeholder="เช่น EMP-007" required class="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+          </div>
+          <div>
+            <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">ชื่อ-นามสกุล</label>
+            <input type="text" id="new-emp-name" placeholder="ชื่อ-นามสกุล" required class="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+          </div>
         </div>
-        <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-2 px-3 rounded-xl transition shadow-xs flex items-center justify-center gap-1">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">แผนก</label>
+            <input type="text" id="new-emp-dept" placeholder="เช่น ฝ่ายขาย" required class="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+          </div>
+          <div>
+            <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">รหัสผ่านเริ่มต้น</label>
+            <input type="text" id="new-emp-password" placeholder="เริ่มต้น 1234" class="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 bg-sky-50/60 p-2.5 rounded-xl border border-sky-200">
+          <div>
+            <label class="block text-[10px] font-bold text-sky-900 mb-0.5 flex items-center gap-1">
+              <i data-lucide="clock" class="w-3 h-3 text-sky-600"></i> เวลาเข้างาน
+            </label>
+            <input type="time" id="new-emp-start" value="08:30" required class="w-full px-2.5 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:ring-2 focus:ring-sky-500 font-mono font-semibold">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-sky-900 mb-0.5 flex items-center gap-1">
+              <i data-lucide="clock-4" class="w-3 h-3 text-sky-600"></i> เวลาออกงาน
+            </label>
+            <input type="time" id="new-emp-end" value="17:30" required class="w-full px-2.5 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:ring-2 focus:ring-sky-500 font-mono font-semibold">
+          </div>
+        </div>
+        <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold py-2 px-3 rounded-xl transition shadow-xs flex items-center justify-center gap-1 cursor-pointer">
           <i data-lucide="plus-circle" class="w-4 h-4"></i> เพิ่มพนักงานและสร้างบัญชีเข้าใช้งาน
         </button>
       </form>
 
+      <!-- System Work Hours Quick Settings -->
+      <details class="mt-2 text-xs bg-sky-50/70 p-3 rounded-2xl border border-sky-200">
+        <summary class="font-bold text-sky-900 cursor-pointer flex items-center justify-between">
+          <span class="flex items-center gap-1.5"><i data-lucide="sliders" class="w-3.5 h-3.5 text-sky-600"></i> กำหนดเวลาเข้า-ออกงานมาตรฐานของระบบ (ค่าเริ่มต้น)</span>
+          <span class="text-[10px] text-sky-600 font-medium">คลิกเพื่อตั้งค่า</span>
+        </summary>
+        <div class="mt-3 space-y-2.5 pt-2 border-t border-sky-200">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">เวลาเข้างานมาตรฐาน</label>
+              <input type="time" id="quick-setting-start-time" value="08:30" class="w-full px-3 py-1.5 border border-sky-300 rounded-xl text-xs bg-white font-mono font-semibold">
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">เวลาเลิกงานมาตรฐาน</label>
+              <input type="time" id="quick-setting-end-time" value="17:30" class="w-full px-3 py-1.5 border border-sky-300 rounded-xl text-xs bg-white font-mono font-semibold">
+            </div>
+          </div>
+          <button type="button" id="btn-save-quick-work-hours" class="w-full py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-xs transition shadow-2xs cursor-pointer">
+            บันทึกเวลามาตรฐานของระบบ
+          </button>
+        </div>
+      </details>
+
       <!-- Admin Password Change Section -->
-      <details class="mt-3 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-200">
+      <details class="mt-2 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-200">
         <summary class="font-bold text-slate-700 cursor-pointer flex items-center justify-between">
           <span class="flex items-center gap-1.5"><i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i> เปลี่ยนรหัสผ่าน Admin</span>
           <span class="text-[10px] text-slate-400">คลิกเพื่อเปิด</span>
@@ -811,17 +935,54 @@
         <div class="mt-3 space-y-2 pt-2 border-t border-slate-200">
           <div class="flex gap-2">
             <input type="password" id="input-new-admin-pwd" placeholder="รหัสผ่านใหม่ของ Admin" class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
-            <button type="button" id="btn-save-admin-pwd" class="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition shrink-0">
+            <button type="button" id="btn-save-admin-pwd" class="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition shrink-0 cursor-pointer">
               บันทึกรหัสผ่าน Admin
             </button>
           </div>
         </div>
       </details>
+    </div>
+  </div>
 
-      <!-- Employee List Container -->
-      <div class="flex-1 overflow-y-auto mt-4 space-y-2 pr-1" id="employee-roster-list">
-        <!-- Rendered by JS -->
+  <!-- MODAL 1.1: Edit Individual Employee Work Hours Modal -->
+  <div id="modal-employee-schedule" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[60] hidden transition-opacity">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl border border-slate-200">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
+            <i data-lucide="clock" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-slate-800">กำหนดเวลาทำงาน</h3>
+            <p id="schedule-emp-name" class="text-xs text-slate-500">ชื่อพนักงาน</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal p-1.5 text-slate-400 hover:text-slate-700 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
       </div>
+
+      <form id="form-edit-employee-schedule" class="mt-4 space-y-3">
+        <input type="hidden" id="schedule-emp-id">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เวลาเข้างาน (เกินเวลานี้นับเป็นสาย)</label>
+          <input type="time" id="schedule-start-time" required class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-mono font-semibold">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เวลาเลิกงาน</label>
+          <input type="time" id="schedule-end-time" required class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-mono font-semibold">
+        </div>
+
+        <div class="flex items-center gap-2 pt-2">
+          <button type="button" class="btn-close-modal flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">
+            ยกเลิก
+          </button>
+          <button type="submit" class="flex-1 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>บันทึกเวลา</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1008,39 +1169,87 @@
           </select>
         </div>
 
-        <!-- GPS Coordinates Editor -->
-        <div class="p-3 bg-sky-50/70 border border-sky-200 rounded-xl space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="block text-xs font-bold text-sky-900 flex items-center gap-1">
-              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-sky-600"></i>
-              <span>พิกัดสถานที่ GPS (Google Maps)</span>
-            </label>
-            <span class="text-[10px] text-sky-600 font-medium">แก้ไขหมุดบนแผนที่</span>
+        <!-- GPS Coordinates Editor (Check-In & Check-Out) -->
+        <input type="hidden" id="edit-att-lat">
+        <input type="hidden" id="edit-att-lng">
+        
+        <div class="space-y-2.5">
+          <!-- 🟢 Check-In GPS -->
+          <div class="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>พิกัดเวลาเข้างาน (Check-In GPS)</span>
+              </label>
+              <span class="text-[10px] text-emerald-700 font-medium">หมุดเขียว</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <span class="text-[10px] text-slate-500 font-medium">ละติจูดเข้า (Lat In)</span>
+                <input type="text" id="edit-att-in-lat" placeholder="เช่น 13.6644" class="w-full px-2.5 py-1.5 border border-emerald-200 rounded-lg text-xs font-mono bg-white focus:ring-1 focus:ring-emerald-400">
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-500 font-medium">ลองจิจูดเข้า (Lng In)</span>
+                <input type="text" id="edit-att-in-lng" placeholder="เช่น 100.4421" class="w-full px-2.5 py-1.5 border border-emerald-200 rounded-lg text-xs font-mono bg-white focus:ring-1 focus:ring-emerald-400">
+              </div>
+            </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <span class="text-[10px] text-slate-500 font-medium">ละติจูด (Lat)</span>
-              <input type="text" id="edit-att-lat" placeholder="เช่น 13.6644" class="w-full px-2.5 py-1.5 border border-sky-200 rounded-lg text-xs font-mono bg-white">
+          <!-- 🔴 Check-Out GPS -->
+          <div class="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                <span>พิกัดเวลาออกงาน (Check-Out GPS)</span>
+              </label>
+              <button type="button" id="btn-copy-in-to-out-gps" title="คัดลอกจากพิกัดเวลาเข้างาน" class="text-[10px] text-rose-700 hover:text-rose-900 font-semibold bg-white hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 transition cursor-pointer">
+                📋 คัดลอกจากเวลาเข้า
+              </button>
             </div>
-            <div>
-              <span class="text-[10px] text-slate-500 font-medium">ลองจิจูด (Lng)</span>
-              <input type="text" id="edit-att-lng" placeholder="เช่น 100.4421" class="w-full px-2.5 py-1.5 border border-sky-200 rounded-lg text-xs font-mono bg-white">
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <span class="text-[10px] text-slate-500 font-medium">ละติจูดออก (Lat Out)</span>
+                <input type="text" id="edit-att-out-lat" placeholder="เช่น 13.6644" class="w-full px-2.5 py-1.5 border border-rose-200 rounded-lg text-xs font-mono bg-white focus:ring-1 focus:ring-rose-400">
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-500 font-medium">ลองจิจูดออก (Lng Out)</span>
+                <input type="text" id="edit-att-out-lng" placeholder="เช่น 100.4421" class="w-full px-2.5 py-1.5 border border-rose-200 rounded-lg text-xs font-mono bg-white focus:ring-1 focus:ring-rose-400">
+              </div>
             </div>
           </div>
 
-          <!-- Quick Presets -->
-          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <button type="button" id="btn-preset-rama2" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
-              📍 พระราม 2 (DOPA)
-            </button>
-            <button type="button" id="btn-preset-hq" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
-              🏢 สำนักงานใหญ่
-            </button>
-            <button type="button" id="btn-edit-get-current-gps" class="px-2 py-1 text-[10px] font-semibold bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition flex items-center gap-0.5 shadow-2xs cursor-pointer">
-              <i data-lucide="crosshair" class="w-3 h-3"></i>
-              <span>ดึงพิกัดปัจจุบัน</span>
-            </button>
+          <!-- Quick Branch Presets -->
+          <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold text-slate-700">📍 เลือกพิกัดสาขาแบบด่วน:</span>
+              <span class="text-[10px] text-slate-400">(ใส่ให้ทั้งพิกัดเข้าและออก)</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" id="btn-preset-rangsit" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                📍 รังสิต
+              </button>
+              <button type="button" id="btn-preset-sainoi" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                📍 ไทรน้อย
+              </button>
+              <button type="button" id="btn-preset-charan" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                📍 จรัญสนิทวงศ์
+              </button>
+              <button type="button" id="btn-preset-rama2" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                📍 พระราม 2 (DOPA)
+              </button>
+              <button type="button" id="btn-preset-lamlukka" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                📍 ลำลูกกา/ปักษีเลิศ
+              </button>
+              <button type="button" id="btn-preset-hq" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+                🏢 สำนักงานใหญ่
+              </button>
+              <button type="button" id="btn-edit-get-current-gps" class="px-2 py-1 text-[10px] font-semibold bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition flex items-center gap-0.5 shadow-2xs cursor-pointer">
+                <i data-lucide="crosshair" class="w-3 h-3"></i>
+                <span>ดึงพิกัดปัจจุบัน</span>
+              </button>
+            </div>
           </div>
         </div>
 
