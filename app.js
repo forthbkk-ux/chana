@@ -821,14 +821,42 @@ async function fetchGoogleSheetData(silent = false) {
           const id = String(a.empId || '').trim().toLowerCase();
           return id !== 'chana.p' && id !== 'admin';
         }).map(a => {
+          // Parse string coordinates from Google Sheets if returned as text
+          if (typeof a.checkInGPS === 'string') {
+            const p = a.checkInGPS.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+            if (p.length >= 2) a.checkInGPS = { lat: p[0], lng: p[1] };
+          }
+          if (typeof a.checkOutGPS === 'string') {
+            const p = a.checkOutGPS.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+            if (p.length >= 2) a.checkOutGPS = { lat: p[0], lng: p[1] };
+          }
+
           // Keep locally stored real checkOutGPS/checkInGPS if sheet only has single GPS
-          const existingLocal = state.attendances.find(loc => loc.id === a.id || (loc.empId === a.empId && loc.date === a.date));
+          const existingLocal = state.attendances.find(loc => loc.id === a.id || (isSameEmpId(loc.empId, a.empId) && isSameDate(loc.date, a.date)));
           if (existingLocal) {
             if (!a.checkOutGPS && existingLocal.checkOutGPS) {
               a.checkOutGPS = existingLocal.checkOutGPS;
             }
             if (!a.checkInGPS && existingLocal.checkInGPS) {
               a.checkInGPS = existingLocal.checkInGPS;
+            }
+
+            // If local device (e.g. mobile) has the actual checkOutGPS that is missing/duplicate in sheet, sync to Google Sheet!
+            if (existingLocal.checkOutGPS && existingLocal.checkOutGPS.lat) {
+              const sheetOutNeedsUpdate = !a.checkOutGPS || (a.checkInGPS && a.checkOutGPS.lat === a.checkInGPS.lat && existingLocal.checkOutGPS.lat !== a.checkInGPS.lat);
+              if (sheetOutNeedsUpdate) {
+                a.checkOutGPS = existingLocal.checkOutGPS;
+                postToGoogleSheet({
+                  action: 'clockOut',
+                  id: a.id,
+                  empId: a.empId,
+                  date: a.date,
+                  checkOut: a.checkOut,
+                  checkOutGPS: a.checkOutGPS,
+                  outLat: a.checkOutGPS.lat,
+                  outLng: a.checkOutGPS.lng
+                });
+              }
             }
           }
 
@@ -1136,6 +1164,7 @@ function updateAttendanceRecord(record) {
   if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
     postToGoogleSheet({
       action: 'clockOut',
+      id: record.id,
       record,
       empId: record.empId,
       date: record.date,
