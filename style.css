@@ -1,0 +1,175 @@
+/* Custom Styles for TimeTrack Dashboard */
+@import url('https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@500;700&display=swap');
+
+:root {
+  --font-thai: 'Prompt', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-thai);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Glassmorphism subtle effects */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Pulse animation for live clock dot & GPS */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* Shutter flash animation */
+@keyframes camera-flash {
+  0% { opacity: 0; }
+  50% { opacity: 0.9; background-color: #ffffff; }
+  100% { opacity: 0; }
+}
+
+.camera-flash-active {
+  animation: camera-flash 0.35s ease-out;
+}
+
+/* Camera Video Mirror (Front Camera) */
+.video-mirrored {
+  transform: scaleX(-1);
+}
+
+/* Viewfinder corner guides */
+.viewfinder-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+.viewfinder-tl { top: 12px; left: 12px; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: 4px; }
+.viewfinder-tr { top: 12px; right: 12px; border-top: 2px solid; border-right: 2px solid; border-top-right-radius: 4px; }
+.viewfinder-bl { bottom: 12px; left: 12px; border-bottom: 2px solid; border-left: 2px solid; border-bottom-left-radius: 4px; }
+.viewfinder-br { bottom: 12px; right: 12px; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: 4px; }
+
+/* Mobile responsive card/table switches */
+@media (max-width: 768px) {
+  .responsive-table thead {
+    display: none;
+  }
+  .responsive-table, 
+  .responsive-table tbody, 
+  .responsive-table tr, 
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+  .responsive-table tr {
+    margin-bottom: 1rem;
+    border-radius: 1.25rem;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+    padding: 0.85rem 1rem;
+  }
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px dashed #f1f5f9;
+  }
+  .responsive-table td:last-child {
+    border-bottom: none;
+    padding-top: 0.75rem;
+    justify-content: flex-end;
+  }
+  .responsive-table td::before {
+    content: attr(data-label);
+    font-weight: 500;
+    color: #64748b;
+    font-size: 0.875rem;
+  }
+}
+
+/* Print Stylesheet for Reports */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt;
+  }
+  .no-print,
+  #punch-card,
+  #chart-container,
+  #bottom-nav,
+  .btn-action,
+  header button,
+  #filter-controls,
+  .camera-container {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  #attendance-table-card {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    width: 100% !important;
+  }
+  .responsive-table thead {
+    display: table-header-group !important;
+  }
+  .responsive-table, 
+  .responsive-table tbody, 
+  .responsive-table tr, 
+  .responsive-table td {
+    display: table !important;
+    width: auto !important;
+  }
+  .responsive-table tr {
+    display: table-row !important;
+    border: 1px solid #ddd !important;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+  }
+  .responsive-table td {
+    display: table-cell !important;
+    border: 1px solid #ddd !important;
+    padding: 6px 8px !important;
+  }
+  .responsive-table td::before {
+    display: none !important;
+  }
+}
