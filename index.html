@@ -50,6 +50,10 @@
   <!-- Central Cloud Configuration File -->
   <script src="cloud-config.js"></script>
 
+  <!-- Leaflet Map CSS & JS (Interactive GPS Pins) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
   <!-- Custom CSS -->
   <link rel="stylesheet" href="style.css">
 </head>
@@ -213,9 +217,9 @@
           <div class="flex items-center justify-between pb-3 border-b border-slate-100">
             <div class="flex items-center gap-2">
               <div class="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
-                <i data-lucide="camera" class="w-5 h-5"></i>
+                <i data-lucide="clock" class="w-5 h-5"></i>
               </div>
-              <h2 class="font-bold text-slate-800 text-lg">จุดตอกบัตร & ถ่ายรูป</h2>
+              <h2 class="font-bold text-slate-800 text-lg">จุดตอกบัตรลงเวลา</h2>
             </div>
             <div id="punch-cloud-pill" class="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -223,68 +227,8 @@
             </div>
           </div>
 
-          <!-- Camera Viewfinder & Photo Capture Area -->
-          <div class="mt-3.5">
-            <div id="camera-box" class="relative w-full h-44 sm:h-48 rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shadow-inner">
-              
-              <!-- Reticle corners -->
-              <div class="viewfinder-corner viewfinder-tl"></div>
-              <div class="viewfinder-corner viewfinder-tr"></div>
-              <div class="viewfinder-corner viewfinder-bl"></div>
-              <div class="viewfinder-corner viewfinder-br"></div>
-
-              <!-- Live Video Stream -->
-              <video id="camera-video" playsinline autoplay muted class="w-full h-full object-cover hidden"></video>
-
-              <!-- Captured Photo Preview -->
-              <img id="camera-photo-preview" class="w-full h-full object-cover hidden" alt="รูปถ่ายยืนยันตัวตน">
-
-              <!-- Hidden Canvas for capture -->
-              <canvas id="camera-canvas" class="hidden"></canvas>
-
-              <!-- Camera Placeholder State (When off) -->
-              <div id="camera-placeholder" class="text-center p-4 text-slate-400 z-10 flex flex-col items-center justify-center">
-                <div class="w-12 h-12 rounded-full bg-slate-800/90 text-sky-400 flex items-center justify-center mb-2 border border-slate-700">
-                  <i data-lucide="camera" class="w-6 h-6"></i>
-                </div>
-                <p class="text-xs font-medium text-slate-300">เปิดกล้องเพื่อถ่ายรูปยืนยันตัวตน</p>
-                <div class="flex items-center gap-2 mt-2.5">
-                  <button type="button" id="btn-start-camera" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
-                    <i data-lucide="video" class="w-3.5 h-3.5"></i>
-                    <span>เปิดกล้องสด</span>
-                  </button>
-                  <label for="camera-file-input" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium border border-slate-700 cursor-pointer transition flex items-center gap-1">
-                    <i data-lucide="upload" class="w-3.5 h-3.5"></i>
-                    <span>เลือกรูป/ถ่ายรูป</span>
-                  </label>
-                  <input type="file" id="camera-file-input" accept="image/*" capture="user" class="hidden">
-                </div>
-              </div>
-
-              <!-- Camera Active Controls (Floating inside camera box) -->
-              <div id="camera-controls-overlay" class="absolute bottom-2.5 inset-x-2.5 flex items-center justify-between z-20 hidden">
-                <span id="camera-status-pill" class="text-[10px] bg-black/60 backdrop-blur text-emerald-400 font-medium px-2 py-1 rounded-lg border border-white/10 flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> กำลังเปิดกล้อง
-                </span>
-                <div class="flex items-center gap-1.5">
-                  <button type="button" id="btn-switch-camera" title="สลับกล้องหน้า/หลัง" class="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg backdrop-blur border border-white/10 transition">
-                    <i data-lucide="switch-camera" class="w-4 h-4"></i>
-                  </button>
-                  <button type="button" id="btn-snap-photo" title="ถ่ายภาพทันที" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs shadow-sm transition flex items-center gap-1">
-                    <i data-lucide="aperture" class="w-3.5 h-3.5"></i>
-                    <span>ถ่ายรูป</span>
-                  </button>
-                  <button type="button" id="btn-clear-photo" title="ล้างรูป/ถ่ายใหม่" class="hidden p-1.5 bg-rose-600/80 hover:bg-rose-700 text-white rounded-lg backdrop-blur border border-white/10 transition">
-                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
           <!-- GPS Location Live Bar -->
-          <div class="mt-2.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+          <div class="mt-3.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
             <div class="flex items-center gap-2 overflow-hidden">
               <div class="w-6 h-6 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
                 <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
@@ -294,13 +238,14 @@
                 <span id="gps-status-text" class="text-[11px] text-slate-500 font-mono truncate">กำลังตรวจสอบสัญญาณ GPS...</span>
               </div>
             </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <button type="button" id="btn-refresh-gps" title="ดึงพิกัดใหม่" class="p-1 text-slate-500 hover:text-sky-600 hover:bg-white rounded-lg transition">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              </button>
-              <a id="btn-open-live-map" href="#" target="_blank" title="ดูใน Google Maps" class="hidden p-1 text-sky-600 hover:bg-sky-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-0.5">
-                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                <span class="hidden sm:inline">แผนที่</span>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span id="gps-auto-pill" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>ซิงค์อัตโนมัติ</span>
+              </span>
+              <a id="btn-open-live-map" href="#" target="_blank" title="ดูใน Google Maps" class="hidden px-2 py-1 text-sky-600 hover:bg-sky-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 border border-sky-100">
+                <i data-lucide="map" class="w-3.5 h-3.5"></i>
+                <span>Google Maps</span>
               </a>
             </div>
           </div>
@@ -491,13 +436,33 @@
       </div>
 
       <!-- Filter Controls Bar -->
-      <div id="filter-controls" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+      <div id="filter-controls" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <!-- Search Box -->
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             <i data-lucide="search" class="w-4 h-4"></i>
           </div>
           <input type="text" id="filter-search" placeholder="ค้นหาชื่อ, รหัส, แผนก..." class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition">
+        </div>
+
+        <!-- Employee Name Filter (Admin Only) -->
+        <div class="admin-only relative">
+          <select id="filter-employee" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-slate-700 appearance-none pr-8 transition">
+            <option value="ALL">👤 พนักงานทุกคน</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+          </div>
+        </div>
+
+        <!-- Department Filter (Admin Only) -->
+        <div class="admin-only relative">
+          <select id="filter-department" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-slate-700 appearance-none pr-8 transition">
+            <option value="ALL">🏢 แผนกทั้งหมด</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+          </div>
         </div>
 
         <!-- Date Filter -->
@@ -521,10 +486,65 @@
 
         <!-- Clear Filter Button -->
         <div>
-          <button id="btn-reset-filters" class="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-1.5">
+          <button id="btn-reset-filters" class="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs sm:text-sm font-medium transition flex items-center justify-center gap-1.5 cursor-pointer">
             <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
             <span>รีเซ็ตตัวกรอง</span>
           </button>
+        </div>
+      </div>
+
+      <!-- Admin Attendance Map Section (Admin Only) -->
+      <div id="admin-map-container" class="admin-only bg-slate-50/80 rounded-2xl p-3 sm:p-4 border border-slate-200 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shadow-xs">
+              <i data-lucide="map-pinned" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-slate-800 text-sm">แผนที่หมุดพิกัดการเข้า-ออกงาน (Google Maps)</h3>
+              <p class="text-[11px] text-slate-500">คลิกที่หมุดเพื่อดูรูปถ่าย ชื่อพนักงาน แผนก และเวลาเข้า-ออกงาน</p>
+            </div>
+          </div>
+          
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Pin Legend & Counts -->
+            <div class="flex items-center gap-2 text-xs">
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 shadow-2xs">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>เข้างาน:</span>
+                <span id="map-count-in" class="font-bold">0</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-semibold border border-rose-200 shadow-2xs">
+                <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                <span>ออกงาน:</span>
+                <span id="map-count-out" class="font-bold">0</span>
+              </span>
+            </div>
+
+            <!-- Fit Bounds Button -->
+            <button id="btn-map-fit-bounds" title="จัดตำแหน่งให้เห็นหมุดทั้งหมด" class="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-white text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5 text-sky-600"></i>
+              <span>จัดกึ่งกลาง</span>
+            </button>
+            <!-- Toggle Collapse Button -->
+            <button id="btn-map-toggle-collapse" title="ย่อ/ขยายแผนที่" class="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-white text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer">
+              <i data-lucide="chevron-up" id="icon-map-collapse" class="w-3.5 h-3.5 text-slate-500 transition-transform"></i>
+              <span id="text-map-collapse">ย่อแผนที่</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Map Container Box -->
+        <div id="admin-map-wrapper" class="relative rounded-xl overflow-hidden border border-slate-200 bg-white shadow-inner transition-all duration-300">
+          <div id="attendance-leaflet-map" class="w-full h-80 sm:h-96 z-0"></div>
+          <!-- Empty Map Overlay -->
+          <div id="map-empty-overlay" class="hidden absolute inset-0 bg-slate-50/90 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-10">
+            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
+              <i data-lucide="map-pin-off" class="w-5 h-5"></i>
+            </div>
+            <p class="text-xs font-semibold text-slate-600">ไม่มีพิกัด GPS สำหรับเงื่อนไขที่เลือก</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">ลองเปลี่ยนเงื่อนไขตัวกรอง เช่น เลือกวันที่หรือพนักงานคนอื่น</p>
+          </div>
         </div>
       </div>
 

@@ -55,6 +55,11 @@ let currentGPS = null;
 let todayChartInstance = null;
 let weeklyChartInstance = null;
 
+// Map instances (Leaflet - Admin Attendance Map)
+let attendanceMapInstance = null;
+let attendanceMapMarkers = [];
+let isAttendanceMapCollapsed = false;
+
 // --- Helper Functions ---
 function getTodayDateString(d = new Date()) {
   const year = d.getFullYear();
@@ -268,6 +273,17 @@ function loadLocalData() {
       state.attendances = generateDemoAttendance(state.employees);
       saveLocalData();
     }
+
+    // Ensure Admin (chana.p) is excluded from employee punch records
+    state.employees = (state.employees || []).filter(e => {
+      const id = String(e.id || '').trim().toLowerCase();
+      const name = String(e.name || '').trim().toLowerCase();
+      return id !== 'chana.p' && id !== 'admin' && !name.includes('ผู้ดูแลระบบ');
+    });
+    state.attendances = (state.attendances || []).filter(a => {
+      const id = String(a.empId || '').trim().toLowerCase();
+      return id !== 'chana.p' && id !== 'admin';
+    });
   } catch (e) {
     console.error('Error loading local data:', e);
     state.employees = [...DEFAULT_EMPLOYEES];
@@ -298,6 +314,19 @@ const DEFAULT_ADMIN_USER = {
 
 function syncUserAccountsWithEmployees() {
   if (!Array.isArray(state.users)) state.users = [];
+
+  // Remove Admin (chana.p / admin) from state.employees - Admin does NOT record attendance
+  state.employees = (state.employees || []).filter(e => {
+    const id = String(e.id || '').trim().toLowerCase();
+    const name = String(e.name || '').trim().toLowerCase();
+    return id !== 'chana.p' && id !== 'admin' && !name.includes('ผู้ดูแลระบบ');
+  });
+
+  // Remove any attendance records for admin
+  state.attendances = (state.attendances || []).filter(a => {
+    const id = String(a.empId || '').trim().toLowerCase();
+    return id !== 'chana.p' && id !== 'admin';
+  });
 
   // Remove generic 'admin' account so chana.p is the ONLY Admin
   state.users = state.users.filter(u => u.username && u.username.toLowerCase() !== 'admin');
@@ -502,27 +531,47 @@ function applyRolePermissions() {
     }
   });
 
-  // 3. Employee Select in Punch Card
+  if (isAdmin) {
+    setTimeout(initAttendanceMap, 100);
+  }
+
+  // 3. Punch Card: Hide for Admin (Admin does NOT record attendance), Show for Regular Employees
+  const punchCard = document.getElementById('punch-card');
+  const chartContainer = document.getElementById('chart-container');
   const empSelectContainer = document.getElementById('container-employee-select');
   const selectEmployee = document.getElementById('select-employee');
 
   if (isAdmin) {
-    if (empSelectContainer) empSelectContainer.classList.remove('hidden');
-    if (selectEmployee) selectEmployee.disabled = false;
-    if (!state.selectedEmpId && state.employees.length > 0) {
-      state.selectedEmpId = state.employees[0].id;
+    // Admin does NOT record attendance -> Hide punch card completely!
+    if (punchCard) punchCard.classList.add('hidden');
+    if (chartContainer) {
+      chartContainer.classList.remove('lg:col-span-7');
+      chartContainer.classList.add('lg:col-span-12');
     }
   } else {
-    // Regular employee: lock punch-in to own account
+    // Regular employee: show punch card and lock to own account
+    if (punchCard) punchCard.classList.remove('hidden');
+    if (chartContainer) {
+      chartContainer.classList.remove('lg:col-span-12');
+      chartContainer.classList.add('lg:col-span-7');
+    }
     if (empSelectContainer) empSelectContainer.classList.add('hidden');
-    if (selectEmployee) {
+    if (selectEmployee && state.currentUser) {
       selectEmployee.value = state.currentUser.empId;
       selectEmployee.disabled = true;
     }
-    state.selectedEmpId = state.currentUser.empId;
+    if (state.currentUser) {
+      state.selectedEmpId = state.currentUser.empId;
+    }
+    updateSelectedEmployeeCard();
   }
 
-  updateSelectedEmployeeCard();
+  // Trigger chart re-render and resize for wide layout
+  setTimeout(() => {
+    if (typeof updateAttendanceCharts === 'function') updateAttendanceCharts();
+    window.dispatchEvent(new Event('resize'));
+  }, 100);
+
   refreshAllUI();
 }
 
@@ -569,12 +618,18 @@ async function fetchGoogleSheetData(silent = false) {
     const data = await res.json();
     if (data && data.status === 'success') {
       if (Array.isArray(data.employees) && data.employees.length > 0) {
-        state.employees = data.employees.map(emp => ({
-          id: emp.id,
-          name: emp.name,
-          dept: emp.dept,
-          color: emp.color || 'bg-sky-600'
-        }));
+        state.employees = data.employees
+          .filter(emp => {
+            const id = String(emp.id || '').trim().toLowerCase();
+            const name = String(emp.name || '').trim().toLowerCase();
+            return id !== 'chana.p' && id !== 'admin' && !name.includes('ผู้ดูแลระบบ');
+          })
+          .map(emp => ({
+            id: emp.id,
+            name: emp.name,
+            dept: emp.dept,
+            color: emp.color || 'bg-sky-600'
+          }));
 
         // Sync usernames and passwords from Google Sheets into state.users
         let missingPasswordInSheet = false;
@@ -625,7 +680,10 @@ async function fetchGoogleSheetData(silent = false) {
         }
       }
       if (Array.isArray(data.attendances)) {
-        state.attendances = data.attendances;
+        state.attendances = data.attendances.filter(a => {
+          const id = String(a.empId || '').trim().toLowerCase();
+          return id !== 'chana.p' && id !== 'admin';
+        });
       }
       if (data.settings) {
         state.settings = {
@@ -943,6 +1001,8 @@ async function startCamera(facing = currentFacingMode) {
   const preview = document.getElementById('camera-photo-preview');
   const statusPill = document.getElementById('camera-status-pill');
 
+  if (!video) return;
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showToast('ไม่รองรับกล้องตรง', 'เบราว์เซอร์ไม่อนุญาต ให้กดปุ่ม "เลือกรูป/ถ่ายรูป" แทนได้ครับ', 'warning');
     return;
@@ -1113,53 +1173,116 @@ function setupCameraFileInput() {
   });
 }
 
-// --- GPS Geolocation Management ---
-function fetchGPSLocation() {
+// --- GPS Geolocation Management (Auto-sync with Google Maps) ---
+let gpsWatchId = null;
+
+async function fetchIPFallbackLocation() {
+  try {
+    const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.latitude && data.longitude) {
+      return {
+        lat: parseFloat(data.latitude).toFixed(5),
+        lng: parseFloat(data.longitude).toFixed(5),
+        accuracy: data.accuracy || 200,
+        city: data.city || ''
+      };
+    }
+  } catch (e) {
+    console.warn('IP location fallback error:', e);
+  }
+  return null;
+}
+
+function updateGPSUI(lat, lng, acc, isApprox = false) {
+  currentGPS = { lat: String(lat), lng: String(lng), accuracy: acc || 20 };
   const gpsText = document.getElementById('gps-status-text');
   const liveMapBtn = document.getElementById('btn-open-live-map');
 
+  if (gpsText) {
+    if (isApprox) {
+      gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> <span class="text-amber-600 font-medium text-[10px]">(ซิงค์จากเครือข่าย)</span>`;
+    } else {
+      gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> <span class="text-emerald-600 font-semibold text-[10px]">(ซิงค์ดาวเทียม ±${acc}ม.)</span>`;
+    }
+  }
+
+  if (liveMapBtn) {
+    liveMapBtn.href = `https://www.google.com/maps?q=${lat},${lng}`;
+    liveMapBtn.classList.remove('hidden');
+  }
+
+  const manualLat = document.getElementById('manual-lat');
+  const manualLng = document.getElementById('manual-lng');
+  if (manualLat && !manualLat.value) manualLat.value = lat;
+  if (manualLng && !manualLng.value) manualLng.value = lng;
+}
+
+function fetchGPSLocation() {
+  const gpsText = document.getElementById('gps-status-text');
+
   if (!navigator.geolocation) {
     if (gpsText) gpsText.textContent = 'เบราว์เซอร์ไม่รองรับ GPS';
+    fetchIPFallbackLocation().then(ipLoc => {
+      if (ipLoc) updateGPSUI(ipLoc.lat, ipLoc.lng, ipLoc.accuracy, true);
+    });
     return;
   }
 
-  if (gpsText) gpsText.textContent = 'กำลังค้นหาพิกัดดาวเทียม...';
+  if (gpsText && !currentGPS) {
+    gpsText.innerHTML = `<span class="inline-flex items-center gap-1 text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-sky-500 animate-ping"></span> กำลังซิงค์ Google Maps อัตโนมัติ...</span>`;
+  }
 
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const lat = pos.coords.latitude.toFixed(5);
-      const lng = pos.coords.longitude.toFixed(5);
-      const acc = Math.round(pos.coords.accuracy);
+  const onGeoSuccess = (pos) => {
+    const lat = pos.coords.latitude.toFixed(5);
+    const lng = pos.coords.longitude.toFixed(5);
+    const acc = Math.round(pos.coords.accuracy);
+    updateGPSUI(lat, lng, acc, false);
+  };
 
-      currentGPS = { lat, lng, accuracy: acc };
-
-      if (gpsText) {
-        gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> (±${acc} ม.)`;
+  const onGeoError = async (err) => {
+    console.warn('GPS location error:', err.message);
+    if (!currentGPS || currentGPS.lat === '13.7563') {
+      const ipLoc = await fetchIPFallbackLocation();
+      if (ipLoc) {
+        updateGPSUI(ipLoc.lat, ipLoc.lng, ipLoc.accuracy, true);
+      } else {
+        updateGPSUI('13.7563', '100.5018', 50, true);
       }
+    }
+  };
 
-      if (liveMapBtn) {
-        liveMapBtn.href = `https://www.google.com/maps?q=${lat},${lng}`;
-        liveMapBtn.classList.remove('hidden');
-      }
+  // 1. Immediate position request
+  navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, {
+    enableHighAccuracy: true,
+    timeout: 8000,
+    maximumAge: 0
+  });
 
-      const manualLat = document.getElementById('manual-lat');
-      const manualLng = document.getElementById('manual-lng');
-      if (manualLat && !manualLat.value) manualLat.value = lat;
-      if (manualLng && !manualLng.value) manualLng.value = lng;
-    },
-    (err) => {
-      console.warn('GPS location error:', err.message);
-      currentGPS = { lat: '13.7563', lng: '100.5018', accuracy: 50 };
-      if (gpsText) {
-        gpsText.innerHTML = `📍 13.7563, 100.5018 <span class="text-amber-600">(ค่าประมาณ)</span>`;
+  // 2. Start continuous watchPosition for live auto-sync with Google Maps
+  try {
+    if (gpsWatchId !== null) navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = navigator.geolocation.watchPosition(onGeoSuccess, onGeoError, {
+      enableHighAccuracy: true,
+      maximumAge: 5000
+    });
+  } catch (e) {
+    console.warn('watchPosition failed:', e);
+  }
+
+  // 3. Periodic background refresh every 15 seconds to ensure GPS is kept fresh
+  if (!window._gpsAutoInterval) {
+    window._gpsAutoInterval = setInterval(() => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(onGeoSuccess, () => {}, {
+          enableHighAccuracy: true,
+          maximumAge: 10000,
+          timeout: 5000
+        });
       }
-      if (liveMapBtn) {
-        liveMapBtn.href = `https://www.google.com/maps?q=13.7563,100.5018`;
-        liveMapBtn.classList.remove('hidden');
-      }
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
-  );
+    }, 15000);
+  }
 }
 
 // --- Live Clock ---
@@ -1210,6 +1333,356 @@ function renderEmployeeDropdown() {
     updateSelectedEmployeeCard();
   }
 }
+
+// Render Dropdown Filters for Employee Name and Department (Admin Only)
+function renderFilterDropdowns() {
+  const empSelect = document.getElementById('filter-employee');
+  const deptSelect = document.getElementById('filter-department');
+  if (!empSelect || !deptSelect) return;
+
+  const currentEmpVal = empSelect.value || 'ALL';
+  const currentDeptVal = deptSelect.value || 'ALL';
+
+  // 1. Render Employees filter dropdown
+  empSelect.innerHTML = '<option value="ALL">👤 พนักงานทุกคน</option>';
+  state.employees.forEach(emp => {
+    const opt = document.createElement('option');
+    opt.value = emp.id;
+    opt.textContent = `${emp.name} (${emp.id})`;
+    empSelect.appendChild(opt);
+  });
+  if (state.employees.some(e => e.id === currentEmpVal)) {
+    empSelect.value = currentEmpVal;
+  } else {
+    empSelect.value = 'ALL';
+  }
+
+  // 2. Render Departments filter dropdown (unique non-empty departments)
+  const deptSet = new Set();
+  state.employees.forEach(e => {
+    if (e.dept && e.dept.trim()) deptSet.add(e.dept.trim());
+  });
+  state.attendances.forEach(a => {
+    if (a.dept && a.dept.trim()) deptSet.add(a.dept.trim());
+  });
+
+  deptSelect.innerHTML = '<option value="ALL">🏢 แผนกทั้งหมด</option>';
+  Array.from(deptSet).sort().forEach(dept => {
+    const opt = document.createElement('option');
+    opt.value = dept;
+    opt.textContent = dept;
+    deptSelect.appendChild(opt);
+  });
+  if (deptSet.has(currentDeptVal)) {
+    deptSelect.value = currentDeptVal;
+  } else {
+    deptSelect.value = 'ALL';
+  }
+}
+
+// --- Leaflet Map Engine (Admin Attendance Map) ---
+
+function initAttendanceMap() {
+  const mapEl = document.getElementById('attendance-leaflet-map');
+  if (!mapEl || typeof L === 'undefined') return;
+  if (attendanceMapInstance) {
+    attendanceMapInstance.invalidateSize();
+    return;
+  }
+
+  try {
+    // Default to center of Bangkok
+    attendanceMapInstance = L.map('attendance-leaflet-map', {
+      center: [13.7563, 100.5018],
+      zoom: 12,
+      zoomControl: true
+    });
+
+    // Google Maps Tile Layers (Roadmap & Satellite Hybrid)
+    const googleRoadmap = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '&copy; Google Maps'
+    });
+
+    const googleSatellite = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '&copy; Google Maps'
+    });
+
+    // Default to Google Maps Roadmap
+    googleRoadmap.addTo(attendanceMapInstance);
+
+    // Add Layer Control to switch between Normal Map and Satellite Map
+    const baseLayers = {
+      '🗺️ แผนที่ Google Maps': googleRoadmap,
+      '🛰️ แผนที่ดาวเทียม': googleSatellite
+    };
+    L.control.layers(baseLayers, null, { position: 'topright' }).addTo(attendanceMapInstance);
+
+    // Setup Fit Bounds button
+    document.getElementById('btn-map-fit-bounds')?.addEventListener('click', () => {
+      if (attendanceMapMarkers.length > 0 && attendanceMapInstance) {
+        const group = L.featureGroup(attendanceMapMarkers);
+        attendanceMapInstance.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 16 });
+      }
+    });
+
+    // Setup Toggle Collapse button
+    const btnToggle = document.getElementById('btn-map-toggle-collapse');
+    const mapWrapper = document.getElementById('admin-map-wrapper');
+    const iconCollapse = document.getElementById('icon-map-collapse');
+    const textCollapse = document.getElementById('text-map-collapse');
+
+    btnToggle?.addEventListener('click', () => {
+      isAttendanceMapCollapsed = !isAttendanceMapCollapsed;
+      if (isAttendanceMapCollapsed) {
+        mapWrapper?.classList.add('map-collapsed');
+        if (textCollapse) textCollapse.textContent = 'แสดงแผนที่';
+        if (iconCollapse) iconCollapse.setAttribute('data-lucide', 'chevron-down');
+      } else {
+        mapWrapper?.classList.remove('map-collapsed');
+        if (textCollapse) textCollapse.textContent = 'ย่อแผนที่';
+        if (iconCollapse) iconCollapse.setAttribute('data-lucide', 'chevron-up');
+        setTimeout(() => {
+          if (attendanceMapInstance) {
+            attendanceMapInstance.invalidateSize();
+            if (attendanceMapMarkers.length > 0) {
+              const group = L.featureGroup(attendanceMapMarkers);
+              attendanceMapInstance.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 16 });
+            }
+          }
+        }, 200);
+      }
+      lucide.createIcons();
+    });
+
+    setTimeout(() => {
+      if (attendanceMapInstance) attendanceMapInstance.invalidateSize();
+    }, 250);
+
+  } catch (err) {
+    console.warn('Error initializing Leaflet map:', err);
+  }
+}
+
+function updateAttendanceMap(records) {
+  const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+  const mapContainer = document.getElementById('admin-map-container');
+  if (!isAdmin || !mapContainer) return;
+
+  if (!attendanceMapInstance) {
+    initAttendanceMap();
+  }
+  if (!attendanceMapInstance || typeof L === 'undefined') return;
+
+  // Clear previous markers
+  attendanceMapMarkers.forEach(m => {
+    try { attendanceMapInstance.removeLayer(m); } catch (e) {}
+  });
+  attendanceMapMarkers = [];
+
+  let countIn = 0;
+  let countOut = 0;
+  const overlay = document.getElementById('map-empty-overlay');
+  const countInEl = document.getElementById('map-count-in');
+  const countOutEl = document.getElementById('map-count-out');
+
+  const validItems = records || state.attendances;
+
+  validItems.forEach(item => {
+    if (!item.gps || !item.gps.lat || !item.gps.lng) return;
+
+    const baseLat = parseFloat(item.gps.lat);
+    const baseLng = parseFloat(item.gps.lng);
+    if (isNaN(baseLat) || isNaN(baseLng)) return;
+
+    const photoSrc = item.photo || generateSampleAvatar(item.empName);
+    const gmapsLink = `https://www.google.com/maps?q=${baseLat},${baseLng}`;
+
+    // 1. Check-In Marker (🟢 ตรงเวลา หรือ 🟠 มาสาย)
+    if (item.checkIn) {
+      countIn++;
+      const isLate = item.status === 'LATE';
+      const badgeClass = isLate ? 'pin-bubble-in late' : 'pin-bubble-in';
+      const timeStr = item.checkIn.substring(0, 5);
+
+      const inIcon = L.divIcon({
+        className: 'custom-map-pin',
+        html: `
+          <div class="pin-bubble ${badgeClass}">
+            <span>🟢</span>
+            <span>${item.empName ? item.empName.split(' ')[0] : 'เข้า'}: ${timeStr}</span>
+            <span class="pin-tail"></span>
+          </div>
+        `,
+        iconSize: [120, 32],
+        iconAnchor: [60, 32],
+        popupAnchor: [0, -32]
+      });
+
+      const popupHtml = `
+        <div class="p-3 w-64 text-slate-800 text-xs">
+          <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
+            <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+            <div>
+              <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
+              <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+            </div>
+          </div>
+          <div class="space-y-1 text-[11px]">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">ประเภท:</span>
+              <span class="font-bold ${isLate ? 'text-amber-600' : 'text-emerald-600'}">🟢 บันทึกเข้างาน</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">เวลาเข้า:</span>
+              <span class="font-semibold text-slate-800">${item.checkIn} น.</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">วันที่:</span>
+              <span class="text-slate-700">${item.date}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">สถานที่:</span>
+              <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+              <span class="text-slate-400 font-mono text-[10px]">📍 ${baseLat.toFixed(4)}, ${baseLng.toFixed(4)}</span>
+              <a href="${gmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
+                <span>เปิดแผนที่</span>
+                <i data-lucide="external-link" class="w-3 h-3"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const markerIn = L.marker([baseLat, baseLng], { icon: inIcon }).addTo(attendanceMapInstance);
+      markerIn.bindPopup(popupHtml);
+      markerIn.recordId = item.id;
+      markerIn.pinType = 'in';
+      attendanceMapMarkers.push(markerIn);
+    }
+
+    // 2. Check-Out Marker (🔴 ออกงาน)
+    if (item.checkOut) {
+      countOut++;
+      // If coordinates are exact same as check-in, offset slightly by 0.00018 so both are visible
+      const outLat = item.checkIn ? (baseLat - 0.00016) : baseLat;
+      const outLng = item.checkIn ? (baseLng + 0.00018) : baseLng;
+      const timeStr = item.checkOut.substring(0, 5);
+
+      const outIcon = L.divIcon({
+        className: 'custom-map-pin',
+        html: `
+          <div class="pin-bubble pin-bubble-out">
+            <span>🔴</span>
+            <span>${item.empName ? item.empName.split(' ')[0] : 'ออก'}: ${timeStr}</span>
+            <span class="pin-tail"></span>
+          </div>
+        `,
+        iconSize: [120, 32],
+        iconAnchor: [60, 32],
+        popupAnchor: [0, -32]
+      });
+
+      const popupHtml = `
+        <div class="p-3 w-64 text-slate-800 text-xs">
+          <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
+            <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+            <div>
+              <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
+              <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+            </div>
+          </div>
+          <div class="space-y-1 text-[11px]">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">ประเภท:</span>
+              <span class="font-bold text-rose-600">🔴 บันทึกออกงาน</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">เวลาออก:</span>
+              <span class="font-semibold text-slate-800">${item.checkOut} น.</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">วันที่:</span>
+              <span class="text-slate-700">${item.date}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">สถานที่:</span>
+              <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+              <span class="text-slate-400 font-mono text-[10px]">📍 ${baseLat.toFixed(4)}, ${baseLng.toFixed(4)}</span>
+              <a href="${gmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
+                <span>เปิดแผนที่</span>
+                <i data-lucide="external-link" class="w-3 h-3"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const markerOut = L.marker([outLat, outLng], { icon: outIcon }).addTo(attendanceMapInstance);
+      markerOut.bindPopup(popupHtml);
+      markerOut.recordId = item.id;
+      markerOut.pinType = 'out';
+      attendanceMapMarkers.push(markerOut);
+    }
+  });
+
+  if (countInEl) countInEl.textContent = countIn;
+  if (countOutEl) countOutEl.textContent = countOut;
+
+  if (attendanceMapMarkers.length > 0) {
+    if (overlay) overlay.classList.add('hidden');
+    try {
+      const group = L.featureGroup(attendanceMapMarkers);
+      attendanceMapInstance.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 16 });
+    } catch (e) {}
+  } else {
+    if (overlay) overlay.classList.remove('hidden');
+  }
+
+  setTimeout(() => {
+    if (attendanceMapInstance) attendanceMapInstance.invalidateSize();
+  }, 100);
+}
+
+window.focusAttendanceMapMarker = function(recordId, type = 'in') {
+  const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+  const item = state.attendances.find(a => a.id === recordId);
+  if (!isAdmin) {
+    if (item && item.gps && item.gps.lat) {
+      window.open(`https://www.google.com/maps?q=${item.gps.lat},${item.gps.lng}`, '_blank');
+    }
+    return;
+  }
+
+  // Scroll to map
+  const mapContainer = document.getElementById('admin-map-container');
+  if (mapContainer) {
+    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // If map is collapsed, uncollapse it
+  if (isAttendanceMapCollapsed) {
+    document.getElementById('btn-map-toggle-collapse')?.click();
+  }
+
+  // Find matching marker
+  const marker = attendanceMapMarkers.find(m => m.recordId === recordId && (m.pinType === type || true));
+  if (marker && attendanceMapInstance) {
+    setTimeout(() => {
+      attendanceMapInstance.flyTo(marker.getLatLng(), 16, { duration: 0.8 });
+      setTimeout(() => marker.openPopup(), 900);
+    }, 300);
+  } else if (item && item.gps && item.gps.lat) {
+    window.open(`https://www.google.com/maps?q=${item.gps.lat},${item.gps.lng}`, '_blank');
+  }
+};
 
 function updateSelectedEmployeeCard() {
   const emp = state.employees.find(e => e.id === state.selectedEmpId);
@@ -1347,6 +1820,8 @@ function renderAttendanceTable() {
   if (!tbody) return;
 
   const searchQuery = (document.getElementById('filter-search')?.value || '').trim().toLowerCase();
+  const employeeFilter = document.getElementById('filter-employee')?.value || 'ALL';
+  const departmentFilter = document.getElementById('filter-department')?.value || 'ALL';
   const dateFilter = document.getElementById('filter-date')?.value || '';
   const statusFilter = document.getElementById('filter-status')?.value || 'ALL';
 
@@ -1361,6 +1836,12 @@ function renderAttendanceTable() {
       const matchId = item.empId.toLowerCase().includes(searchQuery);
       const matchDept = item.dept.toLowerCase().includes(searchQuery);
       if (!matchName && !matchId && !matchDept) return false;
+    }
+    if (employeeFilter !== 'ALL' && item.empId !== employeeFilter) {
+      return false;
+    }
+    if (departmentFilter !== 'ALL' && item.dept !== departmentFilter) {
+      return false;
     }
     if (dateFilter && item.date !== dateFilter) {
       return false;
@@ -1382,14 +1863,15 @@ function renderAttendanceTable() {
   tbody.innerHTML = '';
   if (countVisibleEl) countVisibleEl.textContent = filtered.length;
 
+  const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+
   if (filtered.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
+    if (isAdmin) updateAttendanceMap([]);
     return;
   } else {
     if (emptyState) emptyState.classList.add('hidden');
   }
-
-  const isAdmin = state.currentUser && state.currentUser.role === 'admin';
 
   filtered.forEach(item => {
     const tr = document.createElement('tr');
@@ -1426,10 +1908,15 @@ function renderAttendanceTable() {
     if (item.gps && item.gps.lat && item.gps.lng) {
       const mapsUrl = `https://www.google.com/maps?q=${item.gps.lat},${item.gps.lng}`;
       gpsHtml = `
-        <a href="${mapsUrl}" target="_blank" title="เปิด Google Maps" class="inline-flex items-center gap-1 text-[11px] font-mono text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100 px-2 py-0.5 rounded-lg border border-sky-100 transition">
-          <i data-lucide="map-pin" class="w-3 h-3 text-sky-500 shrink-0"></i>
-          <span>${item.gps.lat}, ${item.gps.lng}</span>
-        </a>
+        <div class="inline-flex items-center gap-1">
+          <button onclick="focusAttendanceMapMarker('${item.id}')" title="คลิกเพื่อดูหมุดบนแผนที่" class="inline-flex items-center gap-1 text-[11px] font-mono text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100 px-2 py-0.5 rounded-lg border border-sky-200 transition cursor-pointer">
+            <i data-lucide="map-pin" class="w-3 h-3 text-sky-500 shrink-0"></i>
+            <span>${item.gps.lat}, ${item.gps.lng}</span>
+          </button>
+          <a href="${mapsUrl}" target="_blank" title="เปิด Google Maps แยกหน้าต่าง" class="p-1 text-slate-400 hover:text-sky-600 transition">
+            <i data-lucide="external-link" class="w-3 h-3"></i>
+          </a>
+        </div>
       `;
     }
 
@@ -1498,6 +1985,11 @@ function renderAttendanceTable() {
 
     tbody.appendChild(tr);
   });
+
+  // Update Leaflet Map with filtered records (Admin Only)
+  if (isAdmin) {
+    updateAttendanceMap(filtered);
+  }
 
   lucide.createIcons();
 }
@@ -2120,6 +2612,7 @@ window.deleteEmployee = function(id) {
 };
 
 function refreshAllUI() {
+  renderFilterDropdowns();
   updateSelectedEmployeeCard();
   updateKPICards();
   renderAttendanceTable();
@@ -2645,14 +3138,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Filter Listeners
   document.getElementById('filter-search')?.addEventListener('input', renderAttendanceTable);
+  document.getElementById('filter-employee')?.addEventListener('change', renderAttendanceTable);
+  document.getElementById('filter-department')?.addEventListener('change', renderAttendanceTable);
   document.getElementById('filter-date')?.addEventListener('change', renderAttendanceTable);
   document.getElementById('filter-status')?.addEventListener('change', renderAttendanceTable);
 
   document.getElementById('btn-reset-filters')?.addEventListener('click', () => {
     const s = document.getElementById('filter-search');
+    const emp = document.getElementById('filter-employee');
+    const dept = document.getElementById('filter-department');
     const d = document.getElementById('filter-date');
     const st = document.getElementById('filter-status');
     if (s) s.value = '';
+    if (emp) emp.value = 'ALL';
+    if (dept) dept.value = 'ALL';
     if (d) d.value = '';
     if (st) st.value = 'ALL';
     renderAttendanceTable();

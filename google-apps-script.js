@@ -227,6 +227,12 @@ function doGet(e) {
         const empId = String(empData[i][idCol]).trim();
         const empName = String(empData[i][nameCol] || '').trim();
         const empDept = String(empData[i][deptCol] || '').trim();
+
+        // Skip Admin accounts - Admin does not record attendance
+        if (empId.toLowerCase() === 'chana.p' || empId.toLowerCase() === 'admin' || empName.toLowerCase().includes('ผู้ดูแลระบบ')) {
+          continue;
+        }
+
         const empPass = (pwdCol >= 0 && empData[i][pwdCol] !== undefined && String(empData[i][pwdCol]).trim() !== '')
           ? String(empData[i][pwdCol]).trim()
           : '1234';
@@ -263,6 +269,11 @@ function doGet(e) {
         let checkOutVal = attData[i][6];
         if (checkOutVal instanceof Date) {
           checkOutVal = Utilities.formatDate(checkOutVal, 'Asia/Bangkok', 'HH:mm:ss');
+        }
+
+        const rowEmpId = String(attData[i][2] || '').trim().toLowerCase();
+        if (rowEmpId === 'chana.p' || rowEmpId === 'admin') {
+          continue;
         }
 
         attendances.push({
