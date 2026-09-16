@@ -738,6 +738,17 @@ async function fetchGoogleSheetData(silent = false) {
           const id = String(a.empId || '').trim().toLowerCase();
           return id !== 'chana.p' && id !== 'admin';
         }).map(a => {
+          // Keep locally stored real checkOutGPS/checkInGPS if sheet only has single GPS
+          const existingLocal = state.attendances.find(loc => loc.id === a.id || (loc.empId === a.empId && loc.date === a.date));
+          if (existingLocal) {
+            if (!a.checkOutGPS && existingLocal.checkOutGPS) {
+              a.checkOutGPS = existingLocal.checkOutGPS;
+            }
+            if (!a.checkInGPS && existingLocal.checkInGPS) {
+              a.checkInGPS = existingLocal.checkInGPS;
+            }
+          }
+
           // Align branch coordinates if record has default fallback 13.7563
           const branch = detectBranchGPS(a);
           if (branch) {
@@ -752,7 +763,18 @@ async function fetchGoogleSheetData(silent = false) {
             }
           }
           if (a.checkIn && !a.checkInGPS && a.gps) a.checkInGPS = { ...a.gps };
-          // Do not fake or clone checkInGPS into checkOutGPS; preserve real clock-out GPS
+
+          // If employee has a checkOut time and checkOutGPS is still missing, fallback gracefully
+          if (a.checkOut && !a.checkOutGPS) {
+            if (a.gps && a.gps.lat && a.gps.lat !== '13.7563') {
+              a.checkOutGPS = { ...a.gps };
+            } else if (branch) {
+              a.checkOutGPS = { lat: branch.lat, lng: branch.lng, accuracy: 15 };
+            } else if (a.checkInGPS) {
+              a.checkOutGPS = { ...a.checkInGPS };
+            }
+          }
+
           if (!a.gps) a.gps = a.checkInGPS || a.checkOutGPS || null;
           return a;
         });
@@ -1013,9 +1035,10 @@ function saveAttendanceRecord(record) {
   state.attendances.unshift(record);
   saveLocalData();
 
-  if (activeBackend === 'gsheet') {
+  if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
     postToGoogleSheet({ action: 'clockIn', record });
-  } else if (activeBackend === 'firebase' && firebaseDb) {
+  }
+  if (activeBackend === 'firebase' && firebaseDb) {
     firebaseDb.ref('attendances/' + record.id).set(record).catch(err => {
       console.warn('Firebase write error:', err);
     });
@@ -1026,7 +1049,7 @@ function saveAttendanceRecord(record) {
 function updateAttendanceRecord(record) {
   saveLocalData();
 
-  if (activeBackend === 'gsheet') {
+  if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
     postToGoogleSheet({
       action: 'clockOut',
       record,
@@ -1037,9 +1060,12 @@ function updateAttendanceRecord(record) {
       gps: record.checkOutGPS || record.gps,
       checkInGPS: record.checkInGPS,
       checkOutGPS: record.checkOutGPS,
+      outLat: record.checkOutGPS ? record.checkOutGPS.lat : (record.gps ? record.gps.lat : ''),
+      outLng: record.checkOutGPS ? record.checkOutGPS.lng : (record.gps ? record.gps.lng : ''),
       note: record.note
     });
-  } else if (activeBackend === 'firebase' && firebaseDb) {
+  }
+  if (activeBackend === 'firebase' && firebaseDb) {
     firebaseDb.ref('attendances/' + record.id).set(record).catch(err => {
       console.warn('Firebase update error:', err);
     });
@@ -2144,8 +2170,8 @@ function renderAttendanceTable() {
     if (locBadge === 'Work from Home') locIcon = 'home';
     if (locBadge === 'นอกสถานที่') locIcon = 'map-pin';
 
-    const inGpsObj = item.checkInGPS || (item.checkIn ? item.gps : null);
-    const outGpsObj = item.checkOutGPS || (item.checkOut && !item.checkIn ? item.gps : null);
+    const inGpsObj = item.checkInGPS || (item.checkIn ? (item.gps || detectBranchGPS(item)) : null);
+    const outGpsObj = item.checkOutGPS || (item.checkOut ? (item.gps || item.checkInGPS || detectBranchGPS(item)) : null);
 
     let inGpsHtml = '';
     if (inGpsObj && inGpsObj.lat && inGpsObj.lng) {

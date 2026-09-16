@@ -563,7 +563,11 @@ function doGet(e) {
     // 2. ดึงข้อมูลบันทึกเวลา
     const attSheet = ss.getSheetByName(SHEET_ATTENDANCE);
     const attData = attSheet.getDataRange().getValues();
-    const cols = getAttendanceColumnMapping(attSheet);
+    let cols = getAttendanceColumnMapping(attSheet);
+    if (cols.outLatCol === -1) {
+      setupClockOutGpsColumnsInSheet(attSheet);
+      cols = getAttendanceColumnMapping(attSheet);
+    }
     const attendances = [];
     for (let i = 1; i < attData.length; i++) {
       if (attData[i][cols.idCol - 1]) {
@@ -603,7 +607,7 @@ function doGet(e) {
         rowLat = resolvedIn.lat;
         rowLng = resolvedIn.lng;
 
-        // ดึงพิกัดออกงานเฉพาะเมื่อมีการบันทึกพิกัดออกงานจริง
+        // ดึงพิกัดออกงาน
         let outGPS = null;
         if (rowOutLat && rowOutLng && rowOutLat !== '13.7563') {
           outGPS = { lat: rowOutLat, lng: rowOutLng };
@@ -612,6 +616,11 @@ function doGet(e) {
         }
 
         const inGPS = (rowLat && rowLng) ? { lat: rowLat, lng: rowLng } : null;
+
+        // ถ้ามีเวลาออกงานแล้วแต่ยังไม่มีพิกัดออกงาน ให้ใช้พิกัดเข้างานหรือพิกัดสาขา
+        if (!outGPS && checkOutVal) {
+          outGPS = inGPS || { lat: resolvedIn.lat, lng: resolvedIn.lng };
+        }
 
         const statusVal = cols.statusCol > 0 ? String(attData[i][cols.statusCol - 1] || 'ON_TIME') : 'ON_TIME';
         const photoVal = cols.photoCol > 0 ? String(attData[i][cols.photoCol - 1] || '') : '';
@@ -760,7 +769,11 @@ function doPost(e) {
     // 2. บันทึกออกงาน (Clock Out)
     if (action === 'clockOut') {
       const attSheet = ss.getSheetByName(SHEET_ATTENDANCE);
-      const cols = getAttendanceColumnMapping(attSheet);
+      let cols = getAttendanceColumnMapping(attSheet);
+      if (cols.outLatCol === -1) {
+        setupClockOutGpsColumnsInSheet(attSheet);
+        cols = getAttendanceColumnMapping(attSheet);
+      }
       const rows = attSheet.getDataRange().getValues();
       let updated = false;
 

@@ -139,74 +139,7 @@
   <!-- Main Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-6">
 
-    <!-- KPI Metric Cards Grid -->
-    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-      
-      <!-- Card 1: พนักงานทั้งหมด -->
-      <div id="kpi-card-employees" class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative overflow-hidden cursor-pointer group" title="คลิกเพื่อดูกำหนดเวลาและรายชื่อพนักงาน">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs sm:text-sm font-medium text-slate-500 group-hover:text-sky-600 transition-colors">พนักงานทั้งหมด</p>
-            <h3 id="kpi-total-employees" class="text-2xl sm:text-3xl font-bold text-slate-900 mt-1 font-mono-num">0</h3>
-          </div>
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-sky-50 group-hover:text-sky-600 transition-colors">
-            <i data-lucide="users" class="w-5 h-5 sm:w-6 sm:h-6"></i>
-          </div>
-        </div>
-        <div class="mt-3 flex items-center text-xs text-slate-500">
-          <span class="text-indigo-600 font-semibold mr-1">ในระบบ</span> พนักงานประจำและสัญญา (คลิกเพื่อดูเวลา)
-        </div>
-      </div>
-
-      <!-- Card 2: เข้างานแล้ววันนี้ -->
-      <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs sm:text-sm font-medium text-slate-500">เข้างานแล้ววันนี้</p>
-            <h3 id="kpi-checked-in" class="text-2xl sm:text-3xl font-bold text-emerald-600 mt-1 font-mono-num">0</h3>
-          </div>
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <i data-lucide="user-check" class="w-5 h-5 sm:w-6 sm:h-6"></i>
-          </div>
-        </div>
-        <div class="mt-3 flex items-center text-xs text-slate-500">
-          <span id="kpi-checked-in-rate" class="text-emerald-600 font-bold mr-1">0%</span> จากทั้งหมด
-        </div>
-      </div>
-
-      <!-- Card 3: มาสาย -->
-      <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs sm:text-sm font-medium text-slate-500">มาสายวันนี้</p>
-            <h3 id="kpi-late" class="text-2xl sm:text-3xl font-bold text-amber-600 mt-1 font-mono-num">0</h3>
-          </div>
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <i data-lucide="alarm-clock-off" class="w-5 h-5 sm:w-6 sm:h-6"></i>
-          </div>
-        </div>
-        <div class="mt-3 flex items-center text-xs text-slate-500">
-          <span class="text-amber-600 font-semibold mr-1">หลังกำหนด</span> เกินเวลา <span id="setting-work-start-label">08:30</span> น.
-        </div>
-      </div>
-
-      <!-- Card 4: ยังไม่ลงเวลา / ขาด-ลา -->
-      <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs sm:text-sm font-medium text-slate-500">ยังไม่ลงเวลา / ขาด</p>
-            <h3 id="kpi-absent" class="text-2xl sm:text-3xl font-bold text-rose-600 mt-1 font-mono-num">0</h3>
-          </div>
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
-            <i data-lucide="user-x" class="w-5 h-5 sm:w-6 sm:h-6"></i>
-          </div>
-        </div>
-        <div class="mt-3 flex items-center text-xs text-slate-500">
-          <span class="text-rose-600 font-semibold mr-1">รอดำเนินการ</span> หรือลางาน
-        </div>
-      </div>
-
-    </section>
+    <!-- Main Workspace: Clock-In Station & Analytics Charts -->
 
     <!-- Main Workspace: Clock-In Station & Analytics Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -244,10 +177,6 @@
               <button type="button" id="btn-sync-current-gps" title="คลิกเพื่อดึงพิกัดปัจจุบันสดจากอุปกรณ์ทันที" class="px-2.5 py-1 text-emerald-800 bg-emerald-100 hover:bg-emerald-200 active:scale-95 border border-emerald-300 rounded-lg transition font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer">
                 <i data-lucide="refresh-cw" id="icon-sync-current-gps" class="w-3.5 h-3.5 text-emerald-700"></i>
                 <span id="text-sync-current-gps">ซิงค์พิกัดปัจจุบัน</span>
-              </button>
-              <button type="button" id="btn-adjust-gps" title="เลือกสาขาหรือระบุพิกัดสถานที่ลงเวลา" class="px-2 py-1 text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 cursor-pointer">
-                <i data-lucide="crosshair" class="w-3.5 h-3.5 text-sky-600"></i>
-                <span>เลือกพิกัด</span>
               </button>
               <a id="btn-open-live-map" href="#" target="_blank" title="ดูใน Google Maps" class="hidden px-2 py-1 text-sky-600 hover:bg-sky-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 border border-sky-100">
                 <i data-lucide="map" class="w-3.5 h-3.5"></i>
