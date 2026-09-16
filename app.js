@@ -752,7 +752,7 @@ async function fetchGoogleSheetData(silent = false) {
             }
           }
           if (a.checkIn && !a.checkInGPS && a.gps) a.checkInGPS = { ...a.gps };
-          if (a.checkOut && !a.checkOutGPS) a.checkOutGPS = a.checkInGPS ? { ...a.checkInGPS } : (a.gps ? { ...a.gps } : null);
+          // Do not fake or clone checkInGPS into checkOutGPS; preserve real clock-out GPS
           if (!a.gps) a.gps = a.checkInGPS || a.checkOutGPS || null;
           return a;
         });
@@ -1301,53 +1301,68 @@ function updateGPSUI(lat, lng, acc, isApprox = false, label = '') {
 // Function to acquire real-time fresh GPS right when clock-in / clock-out is clicked
 async function acquireFreshGPS(targetEmp = null) {
   if (!navigator.geolocation) {
-    const branch = detectBranchGPS(targetEmp || state.selectedEmpId);
-    return branch ? { lat: branch.lat, lng: branch.lng, accuracy: 15 } : currentGPS;
+    const ipLoc = await fetchIPFallbackLocation();
+    if (ipLoc) return { lat: ipLoc.lat, lng: ipLoc.lng, accuracy: ipLoc.accuracy };
+    return currentGPS;
   }
 
-  return new Promise((resolve) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        // If timed out, check if employee has branch preset before falling back
-        const branch = detectBranchGPS(targetEmp || state.selectedEmpId);
-        if ((!currentGPS || currentGPS.lat === '13.7563') && branch) {
-          resolve({ lat: branch.lat, lng: branch.lng, accuracy: 15 });
-        } else {
-          resolve(currentGPS);
+  // Step 1: Try High Accuracy GPS with fresh fix (maximumAge: 0)
+  const tryGetPosition = (highAccuracy, timeoutMs) => {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (!done) {
+          done = true;
+          reject(new Error('timeout'));
         }
-      }
-    }, 5000);
+      }, timeoutMs);
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          const lat = pos.coords.latitude.toFixed(5);
-          const lng = pos.coords.longitude.toFixed(5);
-          const acc = Math.round(pos.coords.accuracy);
-          updateGPSUI(lat, lng, acc, false);
-          resolve({ lat, lng, accuracy: acc });
-        }
-      },
-      (err) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          console.warn('acquireFreshGPS error:', err.message);
-          const branch = detectBranchGPS(targetEmp || state.selectedEmpId);
-          if ((!currentGPS || currentGPS.lat === '13.7563') && branch) {
-            resolve({ lat: branch.lat, lng: branch.lng, accuracy: 15 });
-          } else {
-            resolve(currentGPS);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!done) {
+            done = true;
+            clearTimeout(timer);
+            const lat = pos.coords.latitude.toFixed(5);
+            const lng = pos.coords.longitude.toFixed(5);
+            const acc = Math.round(pos.coords.accuracy);
+            updateGPSUI(lat, lng, acc, false);
+            resolve({ lat, lng, accuracy: acc });
           }
+        },
+        (err) => {
+          if (!done) {
+            done = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        },
+        { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge: 0 }
+      );
+    });
+  };
+
+  try {
+    return await tryGetPosition(true, 4000);
+  } catch (errHigh) {
+    // Step 2: Fallback to fast standard accuracy (network/wifi/cell tower)
+    try {
+      return await tryGetPosition(false, 3000);
+    } catch (errLow) {
+      // Step 3: Try fresh IP-based Geolocation
+      try {
+        const ipLoc = await fetchIPFallbackLocation();
+        if (ipLoc) {
+          updateGPSUI(ipLoc.lat, ipLoc.lng, ipLoc.accuracy, true);
+          return { lat: ipLoc.lat, lng: ipLoc.lng, accuracy: ipLoc.accuracy };
         }
-      },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
-    );
-  });
+      } catch (e) {}
+
+      if (currentGPS && currentGPS.lat && currentGPS.lat !== '13.7563') {
+        return currentGPS;
+      }
+      return null;
+    }
+  }
 }
 
 function openAdjustGPSDialog() {
@@ -1923,11 +1938,6 @@ function updateSelectedEmployeeCard() {
   const endStr = emp.workEnd || state.settings.endTime || '17:30';
   if (roleEl) roleEl.innerHTML = `ID: ${emp.id} • ${emp.dept} <span class="text-sky-600 font-semibold font-mono">(${startStr}-${endStr} น.)</span>`;
 
-  // Smart location / GPS alignment for branch employees if not yet locked to fresh GPS
-  const branchInfo = detectBranchGPS(emp);
-  if (branchInfo && (!currentGPS || currentGPS.lat === '13.7563')) {
-    updateGPSUI(branchInfo.lat, branchInfo.lng, 15, false, branchInfo.name);
-  }
 
   const todayStr = getTodayDateString();
   const todayRec = state.attendances.find(a => a.empId === emp.id && a.date === todayStr);
@@ -2536,15 +2546,19 @@ async function handleClockIn() {
 
   // 1. Acquire real-time fresh GPS directly at punch moment
   const freshGPS = await acquireFreshGPS(emp);
-  let recordGPS = freshGPS || currentGPS;
+  let recordGPS = freshGPS;
 
-  // 2. Intelligent branch alignment: if GPS is missing or stuck at default Bangkok 13.7563, auto-align with branch
-  const branchInfo = detectBranchGPS(emp) || (location && detectBranchGPS(location));
-  const isStuckAtDefault = (!recordGPS || recordGPS.lat === '13.7563');
-  if (isStuckAtDefault && branchInfo) {
-    recordGPS = { lat: branchInfo.lat, lng: branchInfo.lng, accuracy: 15 };
-  } else if (!recordGPS) {
-    recordGPS = { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+  if (!recordGPS || !recordGPS.lat || recordGPS.lat === '13.7563') {
+    if (currentGPS && currentGPS.lat && currentGPS.lat !== '13.7563') {
+      recordGPS = currentGPS;
+    } else {
+      const branchInfo = detectBranchGPS(emp) || (location && detectBranchGPS(location));
+      if (branchInfo) {
+        recordGPS = { lat: branchInfo.lat, lng: branchInfo.lng, accuracy: 15 };
+      } else {
+        recordGPS = currentGPS || { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+      }
+    }
   }
 
   const newRecord = {
@@ -2610,15 +2624,19 @@ async function handleClockOut() {
 
   // 1. Acquire real-time fresh GPS directly at punch moment
   const freshGPS = await acquireFreshGPS(emp);
-  let recordGPS = freshGPS || currentGPS;
+  let recordGPS = freshGPS;
 
-  // 2. Intelligent branch alignment: if GPS is missing or stuck at default Bangkok 13.7563, auto-align with branch
-  const branchInfo = detectBranchGPS(emp) || (existing && existing.location && detectBranchGPS(existing.location));
-  const isStuckAtDefault = (!recordGPS || recordGPS.lat === '13.7563');
-  if (isStuckAtDefault && branchInfo) {
-    recordGPS = { lat: branchInfo.lat, lng: branchInfo.lng, accuracy: 15 };
-  } else if (!recordGPS) {
-    recordGPS = { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+  if (!recordGPS || !recordGPS.lat || recordGPS.lat === '13.7563') {
+    if (currentGPS && currentGPS.lat && currentGPS.lat !== '13.7563') {
+      recordGPS = currentGPS;
+    } else {
+      const branchInfo = detectBranchGPS(emp) || (existing && existing.location && detectBranchGPS(existing.location));
+      if (branchInfo) {
+        recordGPS = { lat: branchInfo.lat, lng: branchInfo.lng, accuracy: 15 };
+      } else {
+        recordGPS = currentGPS || { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+      }
+    }
   }
 
   if (!existing) {

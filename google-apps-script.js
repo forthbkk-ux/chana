@@ -167,16 +167,18 @@ function setupClockOutGpsColumnsInSheet(targetSheet) {
         }
       }
 
-      // ถ้ามีเวลาออกงาน แต่ยังไม่มีพิกัดออกงาน หรือติด 13.7563
+      // ถ้ามีเวลาออกงาน แต่ยังไม่มีพิกัดออกงาน ให้ระบุพิกัดสาขาถ้ามี
       if (checkOutVal && (!outLat || outLat === '13.7563' || outLat === '')) {
-        const resolvedOut = resolveBranchLocation(empId, empName, dept, outLat || inLat, outLng || inLng);
-        if (updatedCols.outLatCol > 0 && updatedCols.outLngCol > 0) {
-          sheet.getRange(i + 1, updatedCols.outLatCol).setValue(resolvedOut.lat);
-          sheet.getRange(i + 1, updatedCols.outLngCol).setValue(resolvedOut.lng);
-          if (updatedCols.outMapCol > 0) {
-            sheet.getRange(i + 1, updatedCols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
+        const resolvedOut = resolveBranchLocation(empId, empName, dept, outLat, outLng);
+        if (resolvedOut.lat && resolvedOut.lat !== '13.7563') {
+          if (updatedCols.outLatCol > 0 && updatedCols.outLngCol > 0) {
+            sheet.getRange(i + 1, updatedCols.outLatCol).setValue(resolvedOut.lat);
+            sheet.getRange(i + 1, updatedCols.outLngCol).setValue(resolvedOut.lng);
+            if (updatedCols.outMapCol > 0) {
+              sheet.getRange(i + 1, updatedCols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
+            }
+            updatedCount++;
           }
-          updatedCount++;
         }
       }
     }
@@ -601,15 +603,15 @@ function doGet(e) {
         rowLat = resolvedIn.lat;
         rowLng = resolvedIn.lng;
 
-        // ระบุพิกัดสาขาออกงาน
-        if (checkOutVal) {
-          const resolvedOut = resolveBranchLocation(rowEmpId, rowEmpName, rowDept, rowOutLat || rowLat, rowOutLng || rowLng);
-          rowOutLat = resolvedOut.lat;
-          rowOutLng = resolvedOut.lng;
+        // ดึงพิกัดออกงานเฉพาะเมื่อมีการบันทึกพิกัดออกงานจริง
+        let outGPS = null;
+        if (rowOutLat && rowOutLng && rowOutLat !== '13.7563') {
+          outGPS = { lat: rowOutLat, lng: rowOutLng };
+        } else if (cols.outLatCol > 0 && rowOutLat && rowOutLng) {
+          outGPS = { lat: rowOutLat, lng: rowOutLng };
         }
 
         const inGPS = (rowLat && rowLng) ? { lat: rowLat, lng: rowLng } : null;
-        const outGPS = (rowOutLat && rowOutLng) ? { lat: rowOutLat, lng: rowOutLng } : (checkOutVal ? inGPS : null);
 
         const statusVal = cols.statusCol > 0 ? String(attData[i][cols.statusCol - 1] || 'ON_TIME') : 'ON_TIME';
         const photoVal = cols.photoCol > 0 ? String(attData[i][cols.photoCol - 1] || '') : '';
