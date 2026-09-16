@@ -114,12 +114,10 @@
           </button>
 
           <!-- Current User Profile Pill -->
-          <div id="user-profile-badge" class="flex items-center gap-2 pl-2 sm:pl-2.5 pr-2.5 sm:pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 shadow-xs">
-            <div id="user-badge-avatar" class="w-7 h-7 rounded-lg bg-sky-600 text-white font-bold flex items-center justify-center text-xs shadow-xs">
-              AD
-            </div>
-            <div class="hidden sm:block text-left leading-tight">
-              <span id="user-badge-name" class="font-bold text-slate-800 block text-xs max-w-[100px] truncate">ผู้ดูแลระบบ</span>
+          <div id="user-profile-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 shadow-xs">
+            <div id="user-badge-avatar" class="hidden"></div>
+            <div class="text-left leading-tight">
+              <span id="user-badge-name" class="font-bold text-slate-800 block text-xs max-w-[120px] truncate">ผู้ดูแลระบบ</span>
               <span id="user-badge-role" class="text-[10px] font-semibold text-sky-600">Admin</span>
             </div>
           </div>
@@ -241,11 +239,15 @@
             <div class="flex items-center gap-1.5 shrink-0">
               <span id="gps-auto-pill" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>ซิงค์อัตโนมัติ</span>
+                <span>ซิงค์สด</span>
               </span>
+              <button type="button" id="btn-adjust-gps" title="เปลี่ยน/ระบุพิกัดสถานที่ลงเวลา" class="px-2 py-1 text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 cursor-pointer">
+                <i data-lucide="crosshair" class="w-3.5 h-3.5 text-sky-600"></i>
+                <span>พิกัดสถานที่</span>
+              </button>
               <a id="btn-open-live-map" href="#" target="_blank" title="ดูใน Google Maps" class="hidden px-2 py-1 text-sky-600 hover:bg-sky-50 rounded-lg transition font-semibold text-[11px] flex items-center gap-1 border border-sky-100">
                 <i data-lucide="map" class="w-3.5 h-3.5"></i>
-                <span>Google Maps</span>
+                <span class="hidden sm:inline">Google Maps</span>
               </a>
             </div>
           </div>
@@ -1004,6 +1006,42 @@
             <option value="LATE">มาสาย (Late)</option>
             <option value="LEAVE">ลางาน (Leave)</option>
           </select>
+        </div>
+
+        <!-- GPS Coordinates Editor -->
+        <div class="p-3 bg-sky-50/70 border border-sky-200 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="block text-xs font-bold text-sky-900 flex items-center gap-1">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-sky-600"></i>
+              <span>พิกัดสถานที่ GPS (Google Maps)</span>
+            </label>
+            <span class="text-[10px] text-sky-600 font-medium">แก้ไขหมุดบนแผนที่</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <span class="text-[10px] text-slate-500 font-medium">ละติจูด (Lat)</span>
+              <input type="text" id="edit-att-lat" placeholder="เช่น 13.6644" class="w-full px-2.5 py-1.5 border border-sky-200 rounded-lg text-xs font-mono bg-white">
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 font-medium">ลองจิจูด (Lng)</span>
+              <input type="text" id="edit-att-lng" placeholder="เช่น 100.4421" class="w-full px-2.5 py-1.5 border border-sky-200 rounded-lg text-xs font-mono bg-white">
+            </div>
+          </div>
+
+          <!-- Quick Presets -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <button type="button" id="btn-preset-rama2" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+              📍 พระราม 2 (DOPA)
+            </button>
+            <button type="button" id="btn-preset-hq" class="px-2 py-1 text-[10px] font-semibold bg-white hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg transition shadow-2xs cursor-pointer">
+              🏢 สำนักงานใหญ่
+            </button>
+            <button type="button" id="btn-edit-get-current-gps" class="px-2 py-1 text-[10px] font-semibold bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition flex items-center gap-0.5 shadow-2xs cursor-pointer">
+              <i data-lucide="crosshair" class="w-3 h-3"></i>
+              <span>ดึงพิกัดปัจจุบัน</span>
+            </button>
+          </div>
         </div>
 
         <div>

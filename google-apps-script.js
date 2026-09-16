@@ -276,18 +276,28 @@ function doGet(e) {
           continue;
         }
 
+        const rowEmpName = String(attData[i][3] || '').trim();
+        const rowDept = String(attData[i][4] || '').trim();
+        let rowLat = String(attData[i][8] || '').trim();
+        let rowLng = String(attData[i][9] || '').trim();
+        const isRama2 = (rowEmpId === 'b001') || rowEmpName.includes('พระราม') || rowDept.includes('พระราม');
+        if (isRama2 && (rowLat === '13.7563' || !rowLat)) {
+          rowLat = '13.6644';
+          rowLng = '100.4421';
+        }
+
         attendances.push({
           id: String(attData[i][0]),
           date: String(dateVal || ''),
           empId: String(attData[i][2] || ''),
-          empName: String(attData[i][3] || ''),
-          dept: String(attData[i][4] || ''),
+          empName: rowEmpName,
+          dept: rowDept,
           checkIn: checkInVal ? String(checkInVal) : null,
           checkOut: checkOutVal ? String(checkOutVal) : null,
           location: String(attData[i][7] || 'สำนักงานใหญ่'),
           gps: {
-            lat: String(attData[i][8] || ''),
-            lng: String(attData[i][9] || '')
+            lat: rowLat,
+            lng: rowLng
           },
           status: String(attData[i][11] || 'ON_TIME'),
           photo: String(attData[i][12] || ''),
@@ -406,6 +416,18 @@ function doPost(e) {
           // อัปเดตคอลัมน์ G (เวลาออก) -> index 7 (1-based)
           attSheet.getRange(i + 1, 7).setValue(data.checkOut);
           if (data.photo) attSheet.getRange(i + 1, 13).setValue(data.photo);
+          let outLat = data.gps && data.gps.lat ? String(data.gps.lat) : '';
+          let outLng = data.gps && data.gps.lng ? String(data.gps.lng) : '';
+          const isRama2Emp = (String(data.empId).toLowerCase() === 'b001') || String(rows[i][3] || '').includes('พระราม') || String(rows[i][4] || '').includes('พระราม');
+          if (isRama2Emp && (outLat === '13.7563' || !outLat)) {
+            outLat = '13.6644';
+            outLng = '100.4421';
+          }
+          if (outLat && outLng) {
+            attSheet.getRange(i + 1, 9).setValue(outLat);
+            attSheet.getRange(i + 1, 10).setValue(outLng);
+            attSheet.getRange(i + 1, 11).setValue(`https://www.google.com/maps?q=${outLat},${outLng}`);
+          }
           updated = true;
           break;
         }
@@ -414,7 +436,14 @@ function doPost(e) {
       // ถ้าไม่พบรายการเข้างาน ให้สร้างแถวใหม่สำหรับการออกงาน
       if (!updated) {
         const record = data.record || {};
-        const mapsLink = (data.gps && data.gps.lat) ? `https://www.google.com/maps?q=${data.gps.lat},${data.gps.lng}` : '';
+        let outLat = data.gps && data.gps.lat ? String(data.gps.lat) : '';
+        let outLng = data.gps && data.gps.lng ? String(data.gps.lng) : '';
+        const isRama2Emp = (String(data.empId).toLowerCase() === 'b001') || String(data.empName || '').includes('พระราม') || String(data.dept || '').includes('พระราม');
+        if (isRama2Emp && (outLat === '13.7563' || !outLat)) {
+          outLat = '13.6644';
+          outLng = '100.4421';
+        }
+        const mapsLink = (outLat && outLng) ? `https://www.google.com/maps?q=${outLat},${outLng}` : '';
         attSheet.appendRow([
           data.id || ('ATT-' + Date.now()),
           data.date,
@@ -424,8 +453,8 @@ function doPost(e) {
           '', // ไม่มีเวลาเข้า
           data.checkOut,
           data.location || 'สำนักงานใหญ่',
-          data.gps ? data.gps.lat : '',
-          data.gps ? data.gps.lng : '',
+          outLat,
+          outLng,
           mapsLink,
           'ON_TIME',
           data.photo || '',
@@ -552,6 +581,11 @@ function doPost(e) {
             attSheet.getRange(i + 1, 7).setNumberFormat('@').setValue(record.checkOut || '');
           }
           if (record.location) attSheet.getRange(i + 1, 8).setValue(record.location);
+          if (record.gps && record.gps.lat && record.gps.lng) {
+            attSheet.getRange(i + 1, 9).setValue(record.gps.lat);
+            attSheet.getRange(i + 1, 10).setValue(record.gps.lng);
+            attSheet.getRange(i + 1, 11).setValue(`https://www.google.com/maps?q=${record.gps.lat},${record.gps.lng}`);
+          }
           if (record.status) attSheet.getRange(i + 1, 12).setValue(record.status);
           if (record.note !== undefined) attSheet.getRange(i + 1, 14).setValue(record.note || '');
           updated = true;

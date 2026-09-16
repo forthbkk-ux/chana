@@ -284,6 +284,16 @@ function loadLocalData() {
       const id = String(a.empId || '').trim().toLowerCase();
       return id !== 'chana.p' && id !== 'admin';
     });
+
+    // Auto-correct any demo/existing records of บุ๊ค พระรามสอง with fake Dinso Rd coords (13.7563) to real Rama 2
+    state.attendances.forEach(a => {
+      const isRama2 = (a.empId === 'B001') || (a.empName && a.empName.includes('พระรามสอง'));
+      if (isRama2 && a.gps && a.gps.lat === '13.7563') {
+        a.gps = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+        a.checkInGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+        a.checkOutGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+      }
+    });
   } catch (e) {
     console.error('Error loading local data:', e);
     state.employees = [...DEFAULT_EMPLOYEES];
@@ -516,10 +526,8 @@ function applyRolePermissions() {
     badgeRole.className = isAdmin ? 'text-[10px] font-bold text-amber-600' : 'text-[10px] font-semibold text-sky-600';
   }
   if (badgeAvatar) {
-    badgeAvatar.textContent = isAdmin ? 'CP' : (state.currentUser.name ? state.currentUser.name.slice(0, 2) : 'US');
-    badgeAvatar.className = isAdmin 
-      ? 'w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-600 to-orange-600 text-white font-bold flex items-center justify-center text-xs shadow-xs'
-      : 'w-7 h-7 rounded-lg bg-sky-600 text-white font-bold flex items-center justify-center text-xs shadow-xs';
+    badgeAvatar.classList.add('hidden');
+    badgeAvatar.textContent = '';
   }
 
   // 2. Show/Hide Admin-Only elements
@@ -683,6 +691,16 @@ async function fetchGoogleSheetData(silent = false) {
         state.attendances = data.attendances.filter(a => {
           const id = String(a.empId || '').trim().toLowerCase();
           return id !== 'chana.p' && id !== 'admin';
+        }).map(a => {
+          const isRama2 = (a.empId === 'B001') || (a.empName && a.empName.includes('พระราม')) || (a.dept && a.dept.includes('พระราม'));
+          if (isRama2 && a.gps && a.gps.lat === '13.7563') {
+            a.gps = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+            if (a.checkIn) a.checkInGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+            if (a.checkOut) a.checkOutGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+          }
+          if (a.checkIn && !a.checkInGPS && a.gps) a.checkInGPS = { ...a.gps };
+          if (a.checkOut && !a.checkOutGPS && a.gps) a.checkOutGPS = { ...a.gps };
+          return a;
         });
       }
       if (data.settings) {
@@ -1195,17 +1213,22 @@ async function fetchIPFallbackLocation() {
   return null;
 }
 
-function updateGPSUI(lat, lng, acc, isApprox = false) {
+function updateGPSUI(lat, lng, acc, isApprox = false, label = '') {
   currentGPS = { lat: String(lat), lng: String(lng), accuracy: acc || 20 };
   const gpsText = document.getElementById('gps-status-text');
   const liveMapBtn = document.getElementById('btn-open-live-map');
 
+  let desc = '';
+  if (label) {
+    desc = `<span class="text-sky-700 font-semibold text-[10px]">(${label})</span>`;
+  } else if (isApprox) {
+    desc = `<span class="text-amber-600 font-medium text-[10px]">(ซิงค์จากเครือข่าย)</span>`;
+  } else {
+    desc = `<span class="text-emerald-600 font-semibold text-[10px]">(ซิงค์ดาวเทียม ±${acc}ม.)</span>`;
+  }
+
   if (gpsText) {
-    if (isApprox) {
-      gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> <span class="text-amber-600 font-medium text-[10px]">(ซิงค์จากเครือข่าย)</span>`;
-    } else {
-      gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> <span class="text-emerald-600 font-semibold text-[10px]">(ซิงค์ดาวเทียม ±${acc}ม.)</span>`;
-    }
+    gpsText.innerHTML = `📍 <span class="text-sky-700 font-bold">${lat}, ${lng}</span> ${desc}`;
   }
 
   if (liveMapBtn) {
@@ -1217,6 +1240,87 @@ function updateGPSUI(lat, lng, acc, isApprox = false) {
   const manualLng = document.getElementById('manual-lng');
   if (manualLat && !manualLat.value) manualLat.value = lat;
   if (manualLng && !manualLng.value) manualLng.value = lng;
+}
+
+// Function to acquire real-time fresh GPS right when clock-in / clock-out is clicked
+async function acquireFreshGPS() {
+  if (!navigator.geolocation) return currentGPS;
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(currentGPS);
+      }
+    }, 2000);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          const lat = pos.coords.latitude.toFixed(5);
+          const lng = pos.coords.longitude.toFixed(5);
+          const acc = Math.round(pos.coords.accuracy);
+          updateGPSUI(lat, lng, acc, false);
+          resolve({ lat, lng, accuracy: acc });
+        }
+      },
+      () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          resolve(currentGPS);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 2000, maximumAge: 0 }
+    );
+  });
+}
+
+function openAdjustGPSDialog() {
+  const options = [
+    '1. 🏢 กรมการปกครอง พระราม 2 (DOPA) (13.6644, 100.4421)',
+    '2. 🏢 สำนักงานใหญ่ (13.7563, 100.5018)',
+    '3. 📡 ดึงสัญญาณดาวเทียม GPS สดจากอุปกรณ์',
+    '4. ✏️ พิมพ์พิกัด ละติจูด, ลองจิจูด เอง'
+  ];
+  const choice = prompt('📍 เลือกหรือปรับพิกัดสถานที่ลงเวลา:\n\n' + options.join('\n') + '\n\nพิมพ์หมายเลข 1, 2, 3 หรือ 4:');
+  if (choice === '1') {
+    updateGPSUI('13.6644', '100.4421', 15, false, 'พระราม 2');
+    showToast('ตั้งพิกัดแล้ว', '📍 พระราม 2 (DOPA)', 'success');
+  } else if (choice === '2') {
+    updateGPSUI('13.7563', '100.5018', 20, false, 'สำนักงานใหญ่');
+    showToast('ตั้งพิกัดแล้ว', '🏢 สำนักงานใหญ่', 'success');
+  } else if (choice === '3') {
+    if (navigator.geolocation) {
+      showToast('กำลังค้นหา...', 'กำลังเชื่อมต่อดาวเทียม GPS...', 'warning');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(5);
+          const lng = pos.coords.longitude.toFixed(5);
+          const acc = Math.round(pos.coords.accuracy);
+          updateGPSUI(lat, lng, acc, false);
+          showToast('ได้พิกัด GPS แล้ว', `${lat}, ${lng} (±${acc}ม.)`, 'success');
+        },
+        (err) => {
+          alert('⚠️ ไม่สามารถดึง GPS จากอุปกรณ์ได้: ' + err.message + '\n\nคำแนะนำ: กรุณาเปิด Location ใน Windows Settings หรือเลือกตัวเลือก 1 (พระราม 2) แทนครับ');
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  } else if (choice === '4') {
+    const coords = prompt('กรุณากรอก ละติจูด, ลองจิจูด (คั่นด้วยเครื่องหมายจุลภาค):', currentGPS ? `${currentGPS.lat}, ${currentGPS.lng}` : '13.6644, 100.4421');
+    if (coords) {
+      const parts = coords.split(',').map(s => s.trim());
+      if (parts.length === 2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+        updateGPSUI(parseFloat(parts[0]).toFixed(5), parseFloat(parts[1]).toFixed(5), 10, false, 'กำหนดเอง');
+        showToast('บันทึกพิกัดแล้ว', `${parts[0]}, ${parts[1]}`, 'success');
+      } else {
+        alert('รูปแบบพิกัดไม่ถูกต้อง ตัวอย่าง: 13.6644, 100.4421');
+      }
+    }
+  }
 }
 
 function fetchGPSLocation() {
@@ -1492,144 +1596,156 @@ function updateAttendanceMap(records) {
   const validItems = records || state.attendances;
 
   validItems.forEach(item => {
-    if (!item.gps || !item.gps.lat || !item.gps.lng) return;
-
-    const baseLat = parseFloat(item.gps.lat);
-    const baseLng = parseFloat(item.gps.lng);
-    if (isNaN(baseLat) || isNaN(baseLng)) return;
+    const inGpsObj = item.checkInGPS || item.gps;
+    const outGpsObj = item.checkOutGPS || item.gps;
 
     const photoSrc = item.photo || generateSampleAvatar(item.empName);
-    const gmapsLink = `https://www.google.com/maps?q=${baseLat},${baseLng}`;
 
     // 1. Check-In Marker (🟢 ตรงเวลา หรือ 🟠 มาสาย)
-    if (item.checkIn) {
-      countIn++;
-      const isLate = item.status === 'LATE';
-      const badgeClass = isLate ? 'pin-bubble-in late' : 'pin-bubble-in';
-      const timeStr = item.checkIn.substring(0, 5);
+    if (item.checkIn && inGpsObj && inGpsObj.lat && inGpsObj.lng) {
+      const inLat = parseFloat(inGpsObj.lat);
+      const inLng = parseFloat(inGpsObj.lng);
+      if (!isNaN(inLat) && !isNaN(inLng)) {
+        countIn++;
+        const isLate = item.status === 'LATE';
+        const badgeClass = isLate ? 'pin-bubble-in late' : 'pin-bubble-in';
+        const timeStr = item.checkIn.substring(0, 5);
+        const inGmapsLink = `https://www.google.com/maps?q=${inLat},${inLng}`;
 
-      const inIcon = L.divIcon({
-        className: 'custom-map-pin',
-        html: `
-          <div class="pin-bubble ${badgeClass}">
-            <span>🟢</span>
-            <span>${item.empName ? item.empName.split(' ')[0] : 'เข้า'}: ${timeStr}</span>
-            <span class="pin-tail"></span>
-          </div>
-        `,
-        iconSize: [120, 32],
-        iconAnchor: [60, 32],
-        popupAnchor: [0, -32]
-      });
+        const inIcon = L.divIcon({
+          className: 'custom-map-pin',
+          html: `
+            <div class="pin-bubble ${badgeClass}">
+              <span>🟢</span>
+              <span>${item.empName ? item.empName.split(' ')[0] : 'เข้า'}: ${timeStr}</span>
+              <span class="pin-tail"></span>
+            </div>
+          `,
+          iconSize: [120, 32],
+          iconAnchor: [60, 32],
+          popupAnchor: [0, -32]
+        });
 
-      const popupHtml = `
-        <div class="p-3 w-64 text-slate-800 text-xs">
-          <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
-            <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
-            <div>
-              <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
-              <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+        const popupInHtml = `
+          <div class="p-3 w-64 text-slate-800 text-xs">
+            <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
+              <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+              <div>
+                <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
+                <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+              </div>
+            </div>
+            <div class="space-y-1 text-[11px]">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">ประเภท:</span>
+                <span class="font-bold ${isLate ? 'text-amber-600' : 'text-emerald-600'}">🟢 บันทึกเข้างาน</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">เวลาเข้า:</span>
+                <span class="font-semibold text-slate-800">${item.checkIn} น.</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">วันที่:</span>
+                <span class="text-slate-700">${item.date}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">สถานที่:</span>
+                <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+                <span class="text-slate-400 font-mono text-[10px]">📍 ${inLat.toFixed(4)}, ${inLng.toFixed(4)}</span>
+                <a href="${inGmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
+                  <span>เปิด Google Maps</span>
+                  <i data-lucide="external-link" class="w-3 h-3"></i>
+                </a>
+              </div>
             </div>
           </div>
-          <div class="space-y-1 text-[11px]">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">ประเภท:</span>
-              <span class="font-bold ${isLate ? 'text-amber-600' : 'text-emerald-600'}">🟢 บันทึกเข้างาน</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">เวลาเข้า:</span>
-              <span class="font-semibold text-slate-800">${item.checkIn} น.</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">วันที่:</span>
-              <span class="text-slate-700">${item.date}</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">สถานที่:</span>
-              <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
-            </div>
-            <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
-              <span class="text-slate-400 font-mono text-[10px]">📍 ${baseLat.toFixed(4)}, ${baseLng.toFixed(4)}</span>
-              <a href="${gmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
-                <span>เปิดแผนที่</span>
-                <i data-lucide="external-link" class="w-3 h-3"></i>
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
+        `;
 
-      const markerIn = L.marker([baseLat, baseLng], { icon: inIcon }).addTo(attendanceMapInstance);
-      markerIn.bindPopup(popupHtml);
-      markerIn.recordId = item.id;
-      markerIn.pinType = 'in';
-      attendanceMapMarkers.push(markerIn);
+        const markerIn = L.marker([inLat, inLng], { icon: inIcon }).addTo(attendanceMapInstance);
+        markerIn.bindPopup(popupInHtml);
+        markerIn.recordId = item.id;
+        markerIn.pinType = 'in';
+        attendanceMapMarkers.push(markerIn);
+      }
     }
 
     // 2. Check-Out Marker (🔴 ออกงาน)
-    if (item.checkOut) {
-      countOut++;
-      // If coordinates are exact same as check-in, offset slightly by 0.00018 so both are visible
-      const outLat = item.checkIn ? (baseLat - 0.00016) : baseLat;
-      const outLng = item.checkIn ? (baseLng + 0.00018) : baseLng;
-      const timeStr = item.checkOut.substring(0, 5);
+    if (item.checkOut && outGpsObj && outGpsObj.lat && outGpsObj.lng) {
+      let outLat = parseFloat(outGpsObj.lat);
+      let outLng = parseFloat(outGpsObj.lng);
+      if (!isNaN(outLat) && !isNaN(outLng)) {
+        countOut++;
+        // If check-in and check-out are at almost identical spot, offset slightly
+        if (item.checkIn && inGpsObj && inGpsObj.lat && inGpsObj.lng) {
+          const inLat = parseFloat(inGpsObj.lat);
+          const inLng = parseFloat(inGpsObj.lng);
+          if (Math.abs(inLat - outLat) < 0.00008 && Math.abs(inLng - outLng) < 0.00008) {
+            outLat -= 0.00016;
+            outLng += 0.00018;
+          }
+        }
+        const timeStr = item.checkOut.substring(0, 5);
+        const outGmapsLink = `https://www.google.com/maps?q=${outLat},${outLng}`;
 
-      const outIcon = L.divIcon({
-        className: 'custom-map-pin',
-        html: `
-          <div class="pin-bubble pin-bubble-out">
-            <span>🔴</span>
-            <span>${item.empName ? item.empName.split(' ')[0] : 'ออก'}: ${timeStr}</span>
-            <span class="pin-tail"></span>
-          </div>
-        `,
-        iconSize: [120, 32],
-        iconAnchor: [60, 32],
-        popupAnchor: [0, -32]
-      });
+        const outIcon = L.divIcon({
+          className: 'custom-map-pin',
+          html: `
+            <div class="pin-bubble pin-bubble-out">
+              <span>🔴</span>
+              <span>${item.empName ? item.empName.split(' ')[0] : 'ออก'}: ${timeStr}</span>
+              <span class="pin-tail"></span>
+            </div>
+          `,
+          iconSize: [120, 32],
+          iconAnchor: [60, 32],
+          popupAnchor: [0, -32]
+        });
 
-      const popupHtml = `
-        <div class="p-3 w-64 text-slate-800 text-xs">
-          <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
-            <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
-            <div>
-              <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
-              <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+        const popupOutHtml = `
+          <div class="p-3 w-64 text-slate-800 text-xs">
+            <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
+              <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+              <div>
+                <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
+                <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
+              </div>
+            </div>
+            <div class="space-y-1 text-[11px]">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">ประเภท:</span>
+                <span class="font-bold text-rose-600">🔴 บันทึกออกงาน</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">เวลาออก:</span>
+                <span class="font-semibold text-slate-800">${item.checkOut} น.</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">วันที่:</span>
+                <span class="text-slate-700">${item.date}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500">สถานที่:</span>
+                <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
+                <span class="text-slate-400 font-mono text-[10px]">📍 ${outLat.toFixed(4)}, ${outLng.toFixed(4)}</span>
+                <a href="${outGmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
+                  <span>เปิด Google Maps</span>
+                  <i data-lucide="external-link" class="w-3 h-3"></i>
+                </a>
+              </div>
             </div>
           </div>
-          <div class="space-y-1 text-[11px]">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">ประเภท:</span>
-              <span class="font-bold text-rose-600">🔴 บันทึกออกงาน</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">เวลาออก:</span>
-              <span class="font-semibold text-slate-800">${item.checkOut} น.</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">วันที่:</span>
-              <span class="text-slate-700">${item.date}</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">สถานที่:</span>
-              <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
-            </div>
-            <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
-              <span class="text-slate-400 font-mono text-[10px]">📍 ${baseLat.toFixed(4)}, ${baseLng.toFixed(4)}</span>
-              <a href="${gmapsLink}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-sky-600 hover:text-sky-800 font-semibold">
-                <span>เปิดแผนที่</span>
-                <i data-lucide="external-link" class="w-3 h-3"></i>
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
+        `;
 
-      const markerOut = L.marker([outLat, outLng], { icon: outIcon }).addTo(attendanceMapInstance);
-      markerOut.bindPopup(popupHtml);
-      markerOut.recordId = item.id;
-      markerOut.pinType = 'out';
-      attendanceMapMarkers.push(markerOut);
+        const markerOut = L.marker([outLat, outLng], { icon: outIcon }).addTo(attendanceMapInstance);
+        markerOut.bindPopup(popupOutHtml);
+        markerOut.recordId = item.id;
+        markerOut.pinType = 'out';
+        attendanceMapMarkers.push(markerOut);
+      }
     }
   });
 
@@ -1698,6 +1814,14 @@ function updateSelectedEmployeeCard() {
   }
   if (nameEl) nameEl.textContent = emp.name;
   if (roleEl) roleEl.textContent = `ID: ${emp.id} • ${emp.dept}`;
+
+  // Smart location / GPS alignment for Rama 2 employees (B001 / พระรามสอง)
+  const isRama2 = (emp.name && emp.name.includes('พระราม')) || 
+                  (emp.dept && emp.dept.includes('พระราม')) || 
+                  (emp.id === 'B001');
+  if (isRama2 && (!currentGPS || currentGPS.lat === '13.7563')) {
+    updateGPSUI('13.6644', '100.4421', 15, false, 'พระราม 2 (DOPA)');
+  }
 
   const todayStr = getTodayDateString();
   const todayRec = state.attendances.find(a => a.empId === emp.id && a.date === todayStr);
@@ -2181,7 +2305,7 @@ function renderEmployeeRoster() {
 
 // --- Punch Actions ---
 
-function handleClockIn() {
+async function handleClockIn() {
   const emp = state.employees.find(e => e.id === state.selectedEmpId);
   if (!emp) {
     showToast('ไม่พบข้อมูล', 'กรุณาเลือกพนักงานก่อนบันทึก', 'warning');
@@ -2222,7 +2346,22 @@ function handleClockIn() {
   const noteInput = document.getElementById('input-note');
   const note = noteInput ? noteInput.value.trim() : '';
 
-  const recordGPS = currentGPS ? { ...currentGPS } : { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+  // 1. Acquire real-time fresh GPS directly at punch moment
+  const freshGPS = await acquireFreshGPS();
+  let recordGPS = freshGPS || currentGPS;
+
+  // 2. Intelligent branch alignment: Rama 2 / DOPA fallback
+  const isRama2 = (emp.name && emp.name.includes('พระราม')) || 
+                  (emp.dept && emp.dept.includes('พระราม')) || 
+                  (emp.id === 'B001') ||
+                  (location && location.includes('พระราม'));
+  if (!recordGPS || (!currentGPS && isRama2) || (recordGPS.lat === '13.7563' && isRama2)) {
+    if (isRama2) {
+      recordGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+    } else {
+      recordGPS = recordGPS || { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+    }
+  }
 
   const newRecord = {
     id: 'ATT-' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
@@ -2236,6 +2375,8 @@ function handleClockIn() {
     status: isLate ? 'LATE' : 'ON_TIME',
     photo: photo,
     gps: recordGPS,
+    checkInGPS: recordGPS,
+    checkOutGPS: null,
     note: note
   };
 
@@ -2253,13 +2394,13 @@ function handleClockIn() {
   if (noteInput) noteInput.value = '';
 
   const statusMsg = isLate ? 'เข้างานสาย (หลังเวลาที่กำหนด)' : 'เข้างานตรงเวลา ขอบคุณที่ตรงต่อเวลาครับ!';
-  showToast('บันทึกเข้างานสำเร็จ!', `${emp.name} ถ่ายรูปและบันทึกพิกัดแล้ว (${statusMsg})`, isLate ? 'warning' : 'success');
+  showToast('บันทึกเข้างานสำเร็จ!', `${emp.name} บันทึกพิกัด ${recordGPS.lat}, ${recordGPS.lng} เรียบร้อย (${statusMsg})`, isLate ? 'warning' : 'success');
 
   clearCapturedPhoto();
   refreshAllUI();
 }
 
-function handleClockOut() {
+async function handleClockOut() {
   const emp = state.employees.find(e => e.id === state.selectedEmpId);
   if (!emp) {
     showToast('ไม่พบข้อมูล', 'กรุณาเลือกพนักงานก่อนบันทึก', 'warning');
@@ -2283,7 +2424,22 @@ function handleClockOut() {
     photo = generateSampleAvatar(emp.name);
   }
 
-  const recordGPS = currentGPS ? { ...currentGPS } : { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+  // 1. Acquire real-time fresh GPS directly at punch moment
+  const freshGPS = await acquireFreshGPS();
+  let recordGPS = freshGPS || currentGPS;
+
+  // 2. Intelligent branch alignment: Rama 2 / DOPA fallback
+  const isRama2 = (emp.name && emp.name.includes('พระราม')) || 
+                  (emp.dept && emp.dept.includes('พระราม')) || 
+                  (emp.id === 'B001') ||
+                  (existing && existing.location && existing.location.includes('พระราม'));
+  if (!recordGPS || (!currentGPS && isRama2) || (recordGPS.lat === '13.7563' && isRama2)) {
+    if (isRama2) {
+      recordGPS = { lat: '13.6644', lng: '100.4421', accuracy: 15 };
+    } else {
+      recordGPS = recordGPS || { lat: '13.7563', lng: '100.5018', accuracy: 20 };
+    }
+  }
 
   if (!existing) {
     const confirmPunch = confirm(`${emp.name} ยังไม่มีข้อมูลลงเวลาเข้างานวันนี้\nคุณต้องการบันทึกเลิกงานทันทีหรือไม่?`);
@@ -2306,6 +2462,8 @@ function handleClockOut() {
       status: 'ON_TIME',
       photo: photo,
       gps: recordGPS,
+      checkInGPS: null,
+      checkOutGPS: recordGPS,
       note: note ? `${note} (ไม่ได้ตอกเข้า)` : 'ไม่ได้ตอกเข้า'
     };
 
@@ -2319,14 +2477,16 @@ function handleClockOut() {
     if (currentCapturedPhoto) {
       existing.photo = currentCapturedPhoto;
     }
-    if (currentGPS) {
-      existing.gps = { ...currentGPS };
+    existing.checkOutGPS = recordGPS;
+    existing.gps = recordGPS;
+    if (!existing.checkInGPS && existing.gps) {
+      existing.checkInGPS = existing.gps;
     }
     updateAttendanceRecord(existing);
   }
 
   playSound('success');
-  showToast('บันทึกออกงานสำเร็จ!', `${emp.name} ออกงานเวลา ${checkOutTime.substring(0, 5)} น. กลับบ้านปลอดภัยครับ!`, 'success');
+  showToast('บันทึกออกงานสำเร็จ!', `${emp.name} ออกงานเวลา ${checkOutTime.substring(0, 5)} น. พิกัด ${recordGPS.lat}, ${recordGPS.lng} กลับบ้านปลอดภัยครับ!`, 'success');
 
   clearCapturedPhoto();
   refreshAllUI();
@@ -2403,6 +2563,14 @@ window.openEditAttendanceModal = function(id) {
   document.getElementById('edit-att-location').value = item.location || 'สำนักงานใหญ่';
   document.getElementById('edit-att-status').value = item.status || 'ON_TIME';
   document.getElementById('edit-att-note').value = item.note || '';
+
+  // Populate GPS Coordinates
+  const curLat = item.gps && item.gps.lat ? item.gps.lat : (item.checkOutGPS ? item.checkOutGPS.lat : (item.checkInGPS ? item.checkInGPS.lat : ''));
+  const curLng = item.gps && item.gps.lng ? item.gps.lng : (item.checkOutGPS ? item.checkOutGPS.lng : (item.checkInGPS ? item.checkInGPS.lng : ''));
+  const latInput = document.getElementById('edit-att-lat');
+  const lngInput = document.getElementById('edit-att-lng');
+  if (latInput) latInput.value = curLat || '';
+  if (lngInput) lngInput.value = curLng || '';
 
   modal.classList.remove('hidden');
 };
@@ -2510,6 +2678,8 @@ async function handleSaveEditAttendance(e) {
   const newLoc = document.getElementById('edit-att-location').value;
   const newStatus = document.getElementById('edit-att-status').value;
   const newNote = document.getElementById('edit-att-note').value.trim();
+  const newLat = document.getElementById('edit-att-lat')?.value.trim();
+  const newLng = document.getElementById('edit-att-lng')?.value.trim();
 
   item.date = newDate;
   item.checkIn = newIn ? (newIn.length === 5 ? `${newIn}:00` : newIn) : null;
@@ -2518,10 +2688,25 @@ async function handleSaveEditAttendance(e) {
   item.status = newStatus;
   item.note = newNote;
 
+  if (newLat && newLng) {
+    const parsedLat = parseFloat(newLat);
+    const parsedLng = parseFloat(newLng);
+    if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+      const gpsObj = {
+        lat: parsedLat.toFixed(5),
+        lng: parsedLng.toFixed(5),
+        accuracy: 10
+      };
+      item.gps = gpsObj;
+      if (item.checkIn) item.checkInGPS = { ...gpsObj };
+      if (item.checkOut) item.checkOutGPS = { ...gpsObj };
+    }
+  }
+
   saveLocalData();
   refreshAllUI();
   document.getElementById('modal-edit-attendance')?.classList.add('hidden');
-  showToast('กำลังบันทึก...', `กำลังซิงค์เวลาใหม่ของ ${item.empName} ไปยัง Google Sheets`, 'warning');
+  showToast('กำลังบันทึก...', `กำลังซิงค์เวลาและพิกัดใหม่ของ ${item.empName} ไปยัง Google Sheets`, 'warning');
 
   if (getActiveGSheetUrl()) {
     await syncEditAttendanceToGoogleSheet(item);
@@ -3045,6 +3230,42 @@ function setupModals() {
   // Form: Edit Attendance Record (Admin Only)
   document.getElementById('form-edit-attendance')?.addEventListener('submit', handleSaveEditAttendance);
 
+  // Edit Modal GPS Preset Buttons
+  document.getElementById('btn-preset-rama2')?.addEventListener('click', () => {
+    const lat = document.getElementById('edit-att-lat');
+    const lng = document.getElementById('edit-att-lng');
+    if (lat) lat.value = '13.6644';
+    if (lng) lng.value = '100.4421';
+    showToast('เลือกพิกัดแล้ว', '📍 พระราม 2 (DOPA)', 'success');
+  });
+
+  document.getElementById('btn-preset-hq')?.addEventListener('click', () => {
+    const lat = document.getElementById('edit-att-lat');
+    const lng = document.getElementById('edit-att-lng');
+    if (lat) lat.value = '13.7563';
+    if (lng) lng.value = '100.5018';
+    showToast('เลือกพิกัดแล้ว', '🏢 สำนักงานใหญ่', 'success');
+  });
+
+  document.getElementById('btn-edit-get-current-gps')?.addEventListener('click', () => {
+    if (navigator.geolocation) {
+      showToast('กำลังดึง GPS...', 'กำลังขอพิกัดปัจจุบันจากอุปกรณ์...', 'warning');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = document.getElementById('edit-att-lat');
+          const lng = document.getElementById('edit-att-lng');
+          if (lat) lat.value = pos.coords.latitude.toFixed(5);
+          if (lng) lng.value = pos.coords.longitude.toFixed(5);
+          showToast('ดึงพิกัดสำเร็จ', `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`, 'success');
+        },
+        (err) => {
+          alert('ไม่สามารถดึง GPS จากอุปกรณ์ได้: ' + err.message + '\nสามารถกดปุ่ม "พระราม 2 (DOPA)" เพื่อใส่พิกัดได้ครับ');
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    }
+  });
+
   // Form: Login
   document.getElementById('form-login')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -3126,11 +3347,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-snap-photo')?.addEventListener('click', capturePhoto);
   document.getElementById('btn-clear-photo')?.addEventListener('click', clearCapturedPhoto);
 
-  // GPS Refresh Button
+  // GPS Refresh & Manual Adjust Buttons
   document.getElementById('btn-refresh-gps')?.addEventListener('click', () => {
     fetchGPSLocation();
     showToast('กำลังรีเฟรช GPS', 'กำลังค้นหาตำแหน่งดาวเทียมปัจจุบัน...', 'warning');
   });
+  document.getElementById('btn-adjust-gps')?.addEventListener('click', openAdjustGPSDialog);
 
   // Punch Button Listeners
   document.getElementById('btn-clock-in')?.addEventListener('click', handleClockIn);
