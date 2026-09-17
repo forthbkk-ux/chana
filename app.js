@@ -3087,35 +3087,12 @@ async function handleSaveEditAttendance(e) {
   item.status = newStatus;
   item.note = newNote;
 
-  // Handle Check-In GPS
-  if (inLatVal && inLngVal) {
-    const pLat = parseFloat(inLatVal);
-    const pLng = parseFloat(inLngVal);
-    if (!isNaN(pLat) && !isNaN(pLng)) {
-      item.checkInGPS = {
-        lat: pLat.toFixed(5),
-        lng: pLng.toFixed(5),
-        accuracy: 10
-      };
-      item.gps = item.checkInGPS;
-    }
-  }
-
-  // Handle Check-Out GPS
-  if (outLatVal && outLngVal) {
-    const pLat = parseFloat(outLatVal);
-    const pLng = parseFloat(outLngVal);
-    if (!isNaN(pLat) && !isNaN(pLng)) {
-      item.checkOutGPS = {
-        lat: pLat.toFixed(5),
-        lng: pLng.toFixed(5),
-        accuracy: 10
-      };
-      if (!item.gps) item.gps = item.checkOutGPS;
-    }
-  } else if (!item.checkOut) {
-    item.checkOutGPS = null;
-  }
+  // พิกัดเวลาเข้า-ออก ไม่สามารถแก้ไขได้: ล็อกยึดตามพิกัดที่มีการบันทึกครั้งแรกเท่านั้น
+  const origInGPS = item.checkInGPS || (item.gps ? { lat: item.gps.lat, lng: item.gps.lng, accuracy: item.gps.accuracy || 10 } : null);
+  const origOutGPS = item.checkOutGPS || null;
+  item.checkInGPS = origInGPS;
+  item.checkOutGPS = origOutGPS;
+  item.gps = origInGPS || origOutGPS;
 
   saveLocalData();
   refreshAllUI();
@@ -3187,7 +3164,7 @@ function handleSaveEmployeeSchedule(e) {
   showToast('บันทึกเวลาทำงานแล้ว!', `กำหนดเวลาของ ${emp.name} เป็น ${startTime} - ${endTime} น. (ซิงค์ลงชีทแล้ว)`, 'success');
 
   // Sync to Google Sheets
-  if (activeBackend === 'gsheet') {
+  if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
     postToGoogleSheet({
       action: 'updateEmployeeSchedule',
       empId: emp.id,
@@ -3220,7 +3197,7 @@ window.promptChangeEmployeePassword = function(empId) {
     renderEmployeeRoster();
 
     // Sync to Google Sheets if connected
-    if (activeBackend === 'gsheet') {
+    if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
       postToGoogleSheet({
         action: 'updateEmployeePassword',
         empId: emp.id,
@@ -3240,7 +3217,7 @@ window.deleteAttendanceRecord = function(id) {
   }
   if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการบันทึกเวลานี้?')) return;
   removeAttendanceRecord(id);
-  showToast('ลบสำเร็จ', 'ลบรายการบันทึกเวลาเรียบร้อยแล้ว', 'success');
+  showToast('ลบสำเร็จ', 'ลบรายการบันทึกเวลาและซิงค์ลง Google Sheets เรียบร้อยแล้ว', 'success');
   refreshAllUI();
 };
 
@@ -3263,7 +3240,7 @@ window.deleteEmployee = function(id) {
     state.selectedEmpId = state.employees[0].id;
   }
   saveLocalData();
-  if (activeBackend === 'gsheet') {
+  if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
     postToGoogleSheet({ action: 'deleteEmployee', id });
   } else if (isCloudConnected && firebaseDb) {
     firebaseDb.ref('employees/' + id).remove();
@@ -3656,8 +3633,20 @@ function setupModals() {
     });
     saveUsersData();
 
-    if (activeBackend === 'gsheet') {
+    if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
       postToGoogleSheet({ action: 'addEmployee', employee: newEmp });
+      setTimeout(() => {
+        postToGoogleSheet({
+          action: 'syncEmployees',
+          employees: state.employees.map(emp => {
+            const u = state.users.find(u => u.empId === emp.id || (u.username && u.username.toLowerCase() === emp.id.toLowerCase()));
+            return {
+              ...emp,
+              password: u ? u.password : (emp.password || '1234')
+            };
+          })
+        });
+      }, 400);
     } else if (isCloudConnected && firebaseDb) {
       firebaseDb.ref('employees/' + id).set(newEmp);
     }
@@ -3679,7 +3668,30 @@ function setupModals() {
     const modalRoster = document.getElementById('modal-employee-roster');
     if (modalEmp) modalEmp.classList.add('hidden');
     if (modalRoster) modalRoster.classList.remove('hidden');
-    showToast('เพิ่มพนักงานสำเร็จ!', `เพิ่มคุณ ${name} เวลาทำงาน ${workStart} - ${workEnd} น. (รหัสผ่าน: ${password}) เรียบร้อย`, 'success');
+    showToast('เพิ่มพนักงานสำเร็จ!', `เพิ่มคุณ ${name} เวลาทำงาน ${workStart} - ${workEnd} น. (ซิงค์ลง Google Sheets เรียบร้อย)`, 'success');
+  });
+
+  // Button: Sync Roster to Google Sheet Immediately
+  document.getElementById('btn-sync-roster-to-sheet')?.addEventListener('click', () => {
+    const url = getActiveGSheetUrl();
+    if (!url) {
+      alert('ยังไม่ได้เชื่อมต่อ Google Sheets กรุณาตรวจสอบการตั้งค่าเชื่อมต่อชีตครับ');
+      return;
+    }
+    showToast('กำลังซิงค์...', 'กำลังส่งรายชื่อพนักงานทั้งหมดขึ้น Google Sheets', 'warning');
+    const empPayload = state.employees.map(emp => {
+      const u = state.users.find(u => u.empId === emp.id || (u.username && u.username.toLowerCase() === emp.id.toLowerCase()));
+      return {
+        ...emp,
+        password: u ? u.password : (emp.password || '1234')
+      };
+    });
+    postToGoogleSheet({ action: 'syncEmployees', employees: empPayload });
+    postToGoogleSheet({ action: 'syncAll', employees: empPayload, attendances: state.attendances });
+    setTimeout(async () => {
+      await fetchGoogleSheetData(true);
+      showToast('ซิงค์สำเร็จ!', `ส่งข้อมูลพนักงานทั้ง ${state.employees.length} คนขึ้น Google Sheets เรียบร้อย`, 'success');
+    }, 1500);
   });
 
   // Form: Edit Employee Work Schedule Modal
@@ -3699,7 +3711,7 @@ function setupModals() {
     if (setEnd) setEnd.value = eTime;
 
     saveLocalData();
-    if (activeBackend === 'gsheet') {
+    if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
       postToGoogleSheet({ action: 'saveSettings', settings: state.settings });
     } else if (isCloudConnected && firebaseDb) {
       firebaseDb.ref('settings').set(state.settings);
@@ -3707,7 +3719,7 @@ function setupModals() {
 
     updateSettingLabels();
     renderEmployeeRoster();
-    showToast('บันทึกเวลามาตรฐานแล้ว', `เวลาเข้างานปกติ ${sTime} น. / เลิกงาน ${eTime} น. เรียบร้อย`, 'success');
+    showToast('บันทึกเวลามาตรฐานแล้ว', `เวลาเข้างานปกติ ${sTime} น. / เลิกงาน ${eTime} น. (ซิงค์ลงชีทแล้ว)`, 'success');
   });
 
   // Admin Change Own Password Button
@@ -3734,7 +3746,7 @@ function setupModals() {
     state.settings.graceMinutes = parseInt(document.getElementById('setting-grace-minutes').value, 10) || 0;
 
     saveLocalData();
-    if (activeBackend === 'gsheet') {
+    if (activeBackend === 'gsheet' || getActiveGSheetUrl()) {
       postToGoogleSheet({ action: 'saveSettings', settings: state.settings });
     } else if (isCloudConnected && firebaseDb) {
       firebaseDb.ref('settings').set(state.settings);
@@ -3994,9 +4006,161 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh-gps')?.addEventListener('click', triggerSyncCurrentGPS);
   document.getElementById('btn-adjust-gps')?.addEventListener('click', openAdjustGPSDialog);
 
-  // Punch Button Listeners
-  document.getElementById('btn-clock-in')?.addEventListener('click', handleClockIn);
-  document.getElementById('btn-clock-out')?.addEventListener('click', handleClockOut);
+  // --- Hold-to-Confirm (3 Seconds) Button System ---
+  function setupHoldToConfirmButton({
+    btnId,
+    progressId,
+    barId,
+    hintId,
+    titleId,
+    defaultTitle,
+    defaultHint,
+    actionType,
+    confirmDuration = 3000,
+    onConfirm
+  }) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const progress = document.getElementById(progressId);
+    const bar = document.getElementById(barId);
+    const hint = document.getElementById(hintId);
+    const title = document.getElementById(titleId);
+
+    let holdTimer = null;
+    let holdInterval = null;
+    let startTime = 0;
+    let isHolding = false;
+    let completed = false;
+
+    function resetState() {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (holdInterval) { clearInterval(holdInterval); holdInterval = null; }
+      isHolding = false;
+      if (progress) progress.style.width = '0%';
+      if (bar) bar.style.width = '0%';
+      if (hint) hint.textContent = defaultHint;
+      if (title) title.textContent = defaultTitle;
+      btn.classList.remove('scale-[0.97]', 'ring-4', 'ring-white/40', 'brightness-110');
+    }
+
+    function startHold(e) {
+      // Only left mouse button or touch
+      if (e.type === 'mousedown' && e.button !== 0) return;
+      if (btn.disabled) return;
+      if (isHolding) return;
+
+      completed = false;
+      isHolding = true;
+      startTime = Date.now();
+
+      btn.classList.add('scale-[0.97]', 'ring-4', 'ring-white/40', 'brightness-110');
+      if (navigator.vibrate) {
+        try { navigator.vibrate(30); } catch (vErr) {}
+      }
+
+      const updateProgress = () => {
+        if (!isHolding) return;
+        const elapsed = Date.now() - startTime;
+        const percent = Math.min(100, (elapsed / confirmDuration) * 100);
+        const remainingMs = Math.max(0, confirmDuration - elapsed);
+        const remainingSec = Math.max(1, Math.ceil(remainingMs / 1000));
+
+        if (progress) progress.style.width = `${percent}%`;
+        if (bar) bar.style.width = `${percent}%`;
+        if (hint) hint.textContent = `กดค้างอีก ${remainingSec} วินาที...`;
+        if (title) title.textContent = `กำลังยืนยัน... (${remainingSec})`;
+      };
+
+      updateProgress();
+      holdInterval = setInterval(updateProgress, 40);
+
+      holdTimer = setTimeout(() => {
+        clearInterval(holdInterval);
+        holdInterval = null;
+        completed = true;
+
+        if (progress) progress.style.width = '100%';
+        if (bar) bar.style.width = '100%';
+        if (hint) hint.textContent = 'บันทึกสำเร็จ!';
+        if (title) title.textContent = 'กำลังประมวลผล...';
+
+        if (navigator.vibrate) {
+          try { navigator.vibrate([60, 40, 80]); } catch (vErr) {}
+        }
+
+        setTimeout(() => {
+          resetState();
+          try {
+            onConfirm();
+          } catch (err) {
+            console.error('Error in onConfirm:', err);
+          }
+        }, 150);
+      }, confirmDuration);
+    }
+
+    function cancelHold(e) {
+      if (!isHolding) return;
+      const elapsed = Date.now() - startTime;
+      if (!completed && elapsed < confirmDuration) {
+        resetState();
+        if (elapsed > 250 && elapsed < confirmDuration - 100) {
+          showToast('ปล่อยมือก่อนกำหนด', 'กรุณากดปุ่มค้างไว้ครบ 3 วินาทีเพื่อยืนยันการลงเวลา', 'warning');
+        }
+      }
+    }
+
+    // Intercept normal click
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!completed && (!startTime || (Date.now() - startTime < confirmDuration))) {
+        showToast('ต้องกดค้าง 3 วินาที', 'ระบบป้องกันการเผลอกดโดน กรุณากดปุ่มค้างไว้ 3 วินาทีเพื่อบันทึก', 'warning');
+      }
+    });
+
+    // Mouse listeners
+    btn.addEventListener('mousedown', startHold);
+    btn.addEventListener('mouseup', cancelHold);
+    btn.addEventListener('mouseleave', cancelHold);
+
+    // Touch listeners
+    btn.addEventListener('touchstart', (e) => {
+      startHold(e);
+    }, { passive: true });
+    btn.addEventListener('touchend', cancelHold);
+    btn.addEventListener('touchcancel', cancelHold);
+
+    // Prevent context menu
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  // Setup 3-Second Hold to Confirm for Clock In and Clock Out
+  setupHoldToConfirmButton({
+    btnId: 'btn-clock-in',
+    progressId: 'hold-progress-in',
+    barId: 'hold-bar-in',
+    hintId: 'clock-in-hint',
+    titleId: 'clock-in-title',
+    defaultTitle: 'บันทึกเข้างาน',
+    defaultHint: 'กดค้าง 3 วิ เพื่อบันทึก',
+    actionType: 'in',
+    confirmDuration: 3000,
+    onConfirm: handleClockIn
+  });
+
+  setupHoldToConfirmButton({
+    btnId: 'btn-clock-out',
+    progressId: 'hold-progress-out',
+    barId: 'hold-bar-out',
+    hintId: 'clock-out-hint',
+    titleId: 'clock-out-title',
+    defaultTitle: 'บันทึกออกงาน',
+    defaultHint: 'กดค้าง 3 วิ เพื่อบันทึก',
+    actionType: 'out',
+    confirmDuration: 3000,
+    onConfirm: handleClockOut
+  });
 
   // Filter Listeners
   document.getElementById('filter-search')?.addEventListener('input', renderAttendanceTable);

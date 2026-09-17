@@ -108,9 +108,6 @@ function parseCoords(val) {
  * 3) แบบเดิม 14 คอลัมน์
  */
 function getAttendanceColumnMapping(attSheet) {
-  const lastCol = Math.max(attSheet.getLastColumn(), 14);
-  const headerVals = attSheet.getRange(1, 1, 1, lastCol).getValues()[0];
-
   const cols = {
     idCol: 1,
     dateCol: 2,
@@ -134,6 +131,20 @@ function getAttendanceColumnMapping(attSheet) {
     photoCol: -1,
     noteCol: -1
   };
+  if (!attSheet) return cols;
+
+  const lastCol = attSheet.getLastColumn();
+  if (lastCol <= 0) return cols;
+  const maxCols = attSheet.getMaxColumns();
+  const colCount = Math.min(Math.max(lastCol, 1), maxCols);
+  if (colCount <= 0) return cols;
+
+  let headerVals = [];
+  try {
+    headerVals = attSheet.getRange(1, 1, 1, colCount).getValues()[0];
+  } catch (e) {
+    return cols;
+  }
 
   for (let c = 0; c < headerVals.length; c++) {
     const rawH = String(headerVals[c] || '').trim();
@@ -277,16 +288,18 @@ function setupClockOutGpsColumnsInSheet(targetSheet) {
   // ถ้ามีคอลัมน์พิกัดออกงานอยู่แล้ว (ไม่ว่าจะเป็น พิกัดเวลาออก หรือ ละติจูดออก) ไม่ต้องแทรกคอลัมน์เพิ่ม
   const hasOutGps = (cols.outGpsCol > 0) || (cols.outLatCol > 0 && cols.outLngCol > 0);
   if (!hasOutGps) {
-    const insertAfterCol = cols.inMapCol > 0 ? cols.inMapCol : 11;
-    sheet.insertColumnsAfter(insertAfterCol, 3);
-    sheet.getRange(1, insertAfterCol + 1).setValue('ละติจูดออก');
-    sheet.getRange(1, insertAfterCol + 2).setValue('ลองจิจูดออก');
-    sheet.getRange(1, insertAfterCol + 3).setValue('ลิงก์แผนที่ออก');
+    const insertAfterCol = cols.inMapCol > 0 ? cols.inMapCol : (cols.inGpsCol > 0 ? cols.inGpsCol : Math.min(Math.max(sheet.getLastColumn(), 1), sheet.getMaxColumns()));
+    if (insertAfterCol > 0 && insertAfterCol <= sheet.getMaxColumns()) {
+      sheet.insertColumnsAfter(insertAfterCol, 3);
+      sheet.getRange(1, insertAfterCol + 1).setValue('ละติจูดออก');
+      sheet.getRange(1, insertAfterCol + 2).setValue('ลองจิจูดออก');
+      sheet.getRange(1, insertAfterCol + 3).setValue('ลิงก์แผนที่ออก');
 
-    sheet.getRange(1, insertAfterCol + 1, 1, 3)
-      .setFontWeight('bold')
-      .setBackground('#ffe4e6')
-      .setFontColor('#9f1239');
+      sheet.getRange(1, insertAfterCol + 1, 1, 3)
+        .setFontWeight('bold')
+        .setBackground('#ffe4e6')
+        .setFontColor('#9f1239');
+    }
   }
 
   // ปรับปรุงหัวตารางให้เป็นระเบียบ
@@ -297,22 +310,34 @@ function setupClockOutGpsColumnsInSheet(targetSheet) {
   if (lastRow > 1) {
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-      const checkOutVal = data[i][updatedCols.checkOutCol - 1];
-      const empId = data[i][updatedCols.empIdCol - 1];
-      const empName = data[i][updatedCols.empNameCol - 1];
-      const dept = data[i][updatedCols.deptCol - 1];
-      let inLat = String(data[i][updatedCols.inLatCol - 1] || '').trim();
-      let inLng = String(data[i][updatedCols.inLngCol - 1] || '').trim();
-      let outLat = updatedCols.outLatCol > 0 ? String(data[i][updatedCols.outLatCol - 1] || '').trim() : '';
-      let outLng = updatedCols.outLngCol > 0 ? String(data[i][updatedCols.outLngCol - 1] || '').trim() : '';
+      const rowLen = data[i].length;
+      const checkOutVal = (updatedCols.checkOutCol > 0 && updatedCols.checkOutCol <= rowLen) ? data[i][updatedCols.checkOutCol - 1] : '';
+      const empId = (updatedCols.empIdCol > 0 && updatedCols.empIdCol <= rowLen) ? data[i][updatedCols.empIdCol - 1] : '';
+      const empName = (updatedCols.empNameCol > 0 && updatedCols.empNameCol <= rowLen) ? data[i][updatedCols.empNameCol - 1] : '';
+      const dept = (updatedCols.deptCol > 0 && updatedCols.deptCol <= rowLen) ? data[i][updatedCols.deptCol - 1] : '';
+      let inLat = (updatedCols.inLatCol > 0 && updatedCols.inLatCol <= rowLen) ? String(data[i][updatedCols.inLatCol - 1] || '').trim() : '';
+      let inLng = (updatedCols.inLngCol > 0 && updatedCols.inLngCol <= rowLen) ? String(data[i][updatedCols.inLngCol - 1] || '').trim() : '';
+      let outLat = (updatedCols.outLatCol > 0 && updatedCols.outLatCol <= rowLen) ? String(data[i][updatedCols.outLatCol - 1] || '').trim() : '';
+      let outLng = (updatedCols.outLngCol > 0 && updatedCols.outLngCol <= rowLen) ? String(data[i][updatedCols.outLngCol - 1] || '').trim() : '';
 
       // อัปเดตพิกัดเข้างานถ้าติด 13.7563
-      const resolvedIn = resolveBranchLocation(empId, empName, dept, inLat, inLng);
-      if (resolvedIn.lat !== inLat || resolvedIn.lng !== inLng) {
-        sheet.getRange(i + 1, updatedCols.inLatCol).setValue(resolvedIn.lat);
-        sheet.getRange(i + 1, updatedCols.inLngCol).setValue(resolvedIn.lng);
-        if (updatedCols.inMapCol > 0) {
-          sheet.getRange(i + 1, updatedCols.inMapCol).setValue(`https://www.google.com/maps?q=${resolvedIn.lat},${resolvedIn.lng}`);
+      if (updatedCols.inLatCol > 0 && updatedCols.inLngCol > 0) {
+        const resolvedIn = resolveBranchLocation(empId, empName, dept, inLat, inLng);
+        if (resolvedIn.lat !== inLat || resolvedIn.lng !== inLng) {
+          sheet.getRange(i + 1, updatedCols.inLatCol).setValue(resolvedIn.lat);
+          sheet.getRange(i + 1, updatedCols.inLngCol).setValue(resolvedIn.lng);
+          if (updatedCols.inMapCol > 0) {
+            sheet.getRange(i + 1, updatedCols.inMapCol).setValue(`https://www.google.com/maps?q=${resolvedIn.lat},${resolvedIn.lng}`);
+          }
+        }
+      } else if (updatedCols.inGpsCol > 0) {
+        let rawIn = (updatedCols.inGpsCol <= rowLen) ? String(data[i][updatedCols.inGpsCol - 1] || '').trim() : '';
+        const resolvedIn = resolveBranchLocation(empId, empName, dept, rawIn, '');
+        if (resolvedIn.lat && (!rawIn || rawIn === '13.7563' || rawIn === '13.7563, 100.5018')) {
+          sheet.getRange(i + 1, updatedCols.inGpsCol).setNumberFormat('@').setValue(`${resolvedIn.lat}, ${resolvedIn.lng}`);
+          if (updatedCols.inMapCol > 0) {
+            sheet.getRange(i + 1, updatedCols.inMapCol).setValue(`https://www.google.com/maps?q=${resolvedIn.lat},${resolvedIn.lng}`);
+          }
         }
       }
 
@@ -323,6 +348,12 @@ function setupClockOutGpsColumnsInSheet(targetSheet) {
           if (updatedCols.outLatCol > 0 && updatedCols.outLngCol > 0) {
             sheet.getRange(i + 1, updatedCols.outLatCol).setValue(resolvedOut.lat);
             sheet.getRange(i + 1, updatedCols.outLngCol).setValue(resolvedOut.lng);
+            if (updatedCols.outMapCol > 0) {
+              sheet.getRange(i + 1, updatedCols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
+            }
+            updatedCount++;
+          } else if (updatedCols.outGpsCol > 0) {
+            sheet.getRange(i + 1, updatedCols.outGpsCol).setNumberFormat('@').setValue(`${resolvedOut.lat}, ${resolvedOut.lng}`);
             if (updatedCols.outMapCol > 0) {
               sheet.getRange(i + 1, updatedCols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
             }
@@ -624,143 +655,105 @@ function fillPasswordsInSheet() {
  * ฟังก์ชันเริ่มต้นสร้างตารางอัตโนมัติ (จะรันครั้งแรกเมื่อมีคนเรียกใช้งาน)
  */
 function initSheetsIfNotExist(ss) {
-  // 1. ตารางบันทึกเวลา
-  let attSheet = ss.getSheetByName(SHEET_ATTENDANCE);
-  if (!attSheet) {
-    attSheet = ss.insertSheet(SHEET_ATTENDANCE);
-    const headers = [
-      'รหัสบันทึก', 'วันที่', 'รหัสพนักงาน', 'ชื่อ-นามสกุล', 'แผนก',
-      'เวลาเข้า', 'เวลาออก', 'สถานที่',
-      'ละติจูด', 'ลองจิจูด', 'ลิงก์แผนที่',
-      'ละติจูดออก', 'ลองจิจูดออก', 'ลิงก์แผนที่ออก',
-      'สถานะ', 'รูปถ่าย', 'หมายเหตุ'
-    ];
-    attSheet.appendRow(headers);
-    attSheet.getRange('A1:K1').setFontWeight('bold').setBackground('#e0f2fe').setFontColor('#0369a1');
-    attSheet.getRange('L1:N1').setFontWeight('bold').setBackground('#ffe4e6').setFontColor('#9f1239');
-    attSheet.getRange('O1:Q1').setFontWeight('bold').setBackground('#e0f2fe').setFontColor('#0369a1');
-    attSheet.setFrozenRows(1);
-  } else {
-    const cols = getAttendanceColumnMapping(attSheet);
-    if (cols.outLatCol === -1) {
-      setupClockOutGpsColumnsInSheet(attSheet);
-    }
-  }
-
-  // 2. ตารางรายชื่อพนักงาน
-  let empSheet = ss.getSheetByName(SHEET_EMPLOYEES);
-  if (!empSheet) {
-    empSheet = ss.insertSheet(SHEET_EMPLOYEES);
-    const headers = ['รหัสพนักงาน', 'ชื่อ-นามสกุล', 'แผนก', 'password', 'เวลาเข้างาน', 'เวลาออกงาน'];
-    empSheet.appendRow(headers);
-    empSheet.getRange('A1:F1').setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
-    empSheet.setFrozenRows(1);
-
-    // ใส่ข้อมูลพนักงานเริ่มต้น
-    empSheet.appendRow(['EMP-001', 'สมชาย สายลุย', 'ฝ่ายพัฒนาธุรกิจ', '1234', '08:30', '17:30']);
-    empSheet.appendRow(['EMP-002', 'กัญญาภัทร ใจมั่น', 'ฝ่ายบุคคล (HR)', '1234', '08:30', '17:30']);
-  } else {
-    // ตรวจสอบและตั้งชื่อหัวคอลัมน์ password, เวลาเข้างาน, เวลาออกงาน หากยังไม่มี
-    const lastCol = Math.max(empSheet.getLastColumn(), 6);
-    const headerVals = empSheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    let pwdColIndex = 4; // ค่าเริ่มต้นคอลัมน์ D (1-based)
-    let startColIndex = 5; // ค่าเริ่มต้นคอลัมน์ E (1-based)
-    let endColIndex = 6;   // ค่าเริ่มต้นคอลัมน์ F (1-based)
-    let hasPwdHeader = false;
-    let hasStartHeader = false;
-    let hasEndHeader = false;
-
-    for (let c = 0; c < headerVals.length; c++) {
-      const h = String(headerVals[c] || '').trim().toLowerCase();
-      if (h === 'password' || h === 'pass' || h.includes('รหัสผ่าน')) {
-        pwdColIndex = c + 1;
-        hasPwdHeader = true;
-      } else if (h.includes('เวลาเข้า') || h === 'workstart' || h === 'start') {
-        startColIndex = c + 1;
-        hasStartHeader = true;
-      } else if (h.includes('เวลาออก') || h.includes('เวลาเลิก') || h === 'workend' || h === 'end') {
-        endColIndex = c + 1;
-        hasEndHeader = true;
-      }
+  try {
+    // 1. ตารางบันทึกเวลา
+    let attSheet = ss.getSheetByName(SHEET_ATTENDANCE);
+    if (!attSheet) {
+      attSheet = ss.insertSheet(SHEET_ATTENDANCE);
+      const headers = [
+        'รหัสบันทึก', 'วันที่', 'รหัสพนักงาน', 'ชื่อ-นามสกุล', 'แผนก',
+        'เวลาเข้า', 'เวลาออก', 'สถานที่',
+        'ละติจูด', 'ลองจิจูด', 'ลิงก์แผนที่',
+        'ละติจูดออก', 'ลองจิจูดออก', 'ลิงก์แผนที่ออก',
+        'สถานะ', 'รูปถ่าย', 'หมายเหตุ'
+      ];
+      attSheet.appendRow(headers);
+      attSheet.getRange('A1:K1').setFontWeight('bold').setBackground('#e0f2fe').setFontColor('#0369a1');
+      attSheet.getRange('L1:N1').setFontWeight('bold').setBackground('#ffe4e6').setFontColor('#9f1239');
+      attSheet.getRange('O1:Q1').setFontWeight('bold').setBackground('#e0f2fe').setFontColor('#0369a1');
+      attSheet.setFrozenRows(1);
     }
 
-    if (!hasPwdHeader) {
-      empSheet.getRange(1, 4).setValue('password');
-      empSheet.getRange(1, 4).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
-      pwdColIndex = 4;
-    }
-    if (!hasStartHeader) {
-      empSheet.getRange(1, 5).setValue('เวลาเข้างาน');
-      empSheet.getRange(1, 5).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
-      startColIndex = 5;
-    }
-    if (!hasEndHeader) {
-      empSheet.getRange(1, 6).setValue('เวลาออกงาน');
-      empSheet.getRange(1, 6).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
-      endColIndex = 6;
-    }
+    // 2. ตารางรายชื่อพนักงาน
+    let empSheet = ss.getSheetByName(SHEET_EMPLOYEES);
+    if (!empSheet) {
+      empSheet = ss.insertSheet(SHEET_EMPLOYEES);
+      const headers = ['รหัสพนักงาน', 'ชื่อ-นามสกุล', 'แผนก', 'password', 'เวลาเข้างาน', 'เวลาออกงาน'];
+      empSheet.appendRow(headers);
+      empSheet.getRange('A1:F1').setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
+      empSheet.setFrozenRows(1);
 
-    // เติมรหัสผ่านเริ่มต้น 1234 และเวลาทำงานเริ่มต้นให้แถวพนักงานเดิมที่ยังไม่มีข้อมูล
-    const lastRow = empSheet.getLastRow();
-    if (lastRow > 1) {
-      const pRange = empSheet.getRange(2, pwdColIndex, lastRow - 1, 1);
-      const pVals = pRange.getValues();
-      let changed = false;
-      for (let r = 0; r < pVals.length; r++) {
-        if (!pVals[r][0] || String(pVals[r][0]).trim() === '') {
-          pVals[r][0] = '1234';
-          changed = true;
+      // ใส่ข้อมูลพนักงานเริ่มต้น
+      empSheet.appendRow(['EMP-001', 'สมชาย สายลุย', 'ฝ่ายพัฒนาธุรกิจ', '1234', '08:30', '17:30']);
+      empSheet.appendRow(['EMP-002', 'กัญญาภัทร ใจมั่น', 'ฝ่ายบุคคล (HR)', '1234', '08:30', '17:30']);
+    } else {
+      try {
+        const lastRow = empSheet.getLastRow();
+        const lastCol = empSheet.getLastColumn();
+        if (lastRow >= 1 && lastCol >= 1) {
+          const checkCols = Math.min(lastCol, empSheet.getMaxColumns());
+          const headerVals = empSheet.getRange(1, 1, 1, checkCols).getValues()[0];
+          let hasPwdHeader = false;
+          let hasStartHeader = false;
+          let hasEndHeader = false;
+          let pwdColIndex = 4;
+          let startColIndex = 5;
+          let endColIndex = 6;
+
+          for (let c = 0; c < headerVals.length; c++) {
+            const h = String(headerVals[c] || '').trim().toLowerCase();
+            if (h.includes('pass') || h.includes('รหัสผ่าน')) {
+              pwdColIndex = c + 1;
+              hasPwdHeader = true;
+            } else if (h.includes('เข้า') || h.includes('เวลาทำงาน') || h === 'workstart' || h === 'start') {
+              startColIndex = c + 1;
+              hasStartHeader = true;
+            } else if (h.includes('ออก') || h.includes('เลิก') || h === 'workend' || h === 'end') {
+              endColIndex = c + 1;
+              hasEndHeader = true;
+            }
+          }
+
+          if (empSheet.getMaxColumns() < 6) {
+            empSheet.insertColumnsAfter(empSheet.getMaxColumns(), 6 - empSheet.getMaxColumns());
+          }
+          if (!hasPwdHeader && pwdColIndex <= empSheet.getMaxColumns()) {
+            empSheet.getRange(1, pwdColIndex).setValue('password');
+            empSheet.getRange(1, pwdColIndex).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
+          }
+          if (!hasStartHeader && startColIndex <= empSheet.getMaxColumns()) {
+            empSheet.getRange(1, startColIndex).setValue('เวลาเข้างาน');
+            empSheet.getRange(1, startColIndex).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
+          }
+          if (!hasEndHeader && endColIndex <= empSheet.getMaxColumns()) {
+            empSheet.getRange(1, endColIndex).setValue('เวลาออกงาน');
+            empSheet.getRange(1, endColIndex).setFontWeight('bold').setBackground('#e0e7ff').setFontColor('#3730a3');
+          }
         }
-      }
-      if (changed) {
-        pRange.setValues(pVals);
-      }
-
-      // ตรวจสอบและเติมเวลาเข้างาน/ออกงานเริ่มต้น (08:30 / 17:30)
-      const sRange = empSheet.getRange(2, startColIndex, lastRow - 1, 1);
-      const sVals = sRange.getValues();
-      let sChanged = false;
-      for (let r = 0; r < sVals.length; r++) {
-        if (!sVals[r][0] || String(sVals[r][0]).trim() === '') {
-          sVals[r][0] = '08:30';
-          sChanged = true;
-        }
-      }
-      if (sChanged) {
-        sRange.setNumberFormat('@').setValues(sVals);
-      }
-
-      const eRange = empSheet.getRange(2, endColIndex, lastRow - 1, 1);
-      const eVals = eRange.getValues();
-      let eChanged = false;
-      for (let r = 0; r < eVals.length; r++) {
-        if (!eVals[r][0] || String(eVals[r][0]).trim() === '') {
-          eVals[r][0] = '17:30';
-          eChanged = true;
-        }
-      }
-      if (eChanged) {
-        eRange.setNumberFormat('@').setValues(eVals);
+      } catch (empErr) {
+        console.warn('initSheets emp warning:', empErr);
       }
     }
-  }
 
-  // 3. ตารางตั้งค่าระบบ
-  let setSheet = ss.getSheetByName(SHEET_SETTINGS);
-  if (!setSheet) {
-    setSheet = ss.insertSheet(SHEET_SETTINGS);
-    setSheet.appendRow(['Key', 'Value']);
-    setSheet.getRange('A1:B1').setFontWeight('bold').setBackground('#f1f5f9');
-    setSheet.appendRow(['startTime', '08:30']);
-    setSheet.appendRow(['endTime', '17:30']);
-    setSheet.appendRow(['graceMinutes', '0']);
-    setSheet.setFrozenRows(1);
-  }
+    // 3. ตารางตั้งค่าระบบ
+    let setSheet = ss.getSheetByName(SHEET_SETTINGS);
+    if (!setSheet) {
+      setSheet = ss.insertSheet(SHEET_SETTINGS);
+      setSheet.appendRow(['Key', 'Value']);
+      setSheet.getRange('A1:B1').setFontWeight('bold').setBackground('#f1f5f9');
+      setSheet.appendRow(['startTime', '08:30']);
+      setSheet.appendRow(['endTime', '17:30']);
+      setSheet.appendRow(['graceMinutes', '0']);
+      setSheet.setFrozenRows(1);
+    }
 
-  // ลบ Sheet1 เริ่มต้นทิ้งถ้ามี
-  const defaultSheet = ss.getSheetByName('Sheet1') || ss.getSheetByName('แผ่นงาน1');
-  if (defaultSheet && ss.getSheets().length > 1) {
-    try { ss.deleteSheet(defaultSheet); } catch (e) {}
+    // ลบ Sheet1 เริ่มต้นทิ้งถ้ามี
+    const defaultSheet = ss.getSheetByName('Sheet1') || ss.getSheetByName('แผ่นงาน1');
+    if (defaultSheet && ss.getSheets().length > 1) {
+      try { ss.deleteSheet(defaultSheet); } catch (e) {}
+    }
+  } catch (err) {
+    console.error('initSheetsIfNotExist warning:', err);
   }
 }
 
@@ -1176,11 +1169,94 @@ function doPost(e) {
     if (action === 'addEmployee') {
       const emp = data.employee || {};
       const empSheet = ss.getSheetByName(SHEET_EMPLOYEES);
+      if (!empSheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Sheet not found' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      const empId = String(emp.id || '').trim();
+      const empName = String(emp.name || '').trim();
+      const empDept = String(emp.dept || '').trim();
       const password = String(emp.password || '1234').trim();
       const workStart = String(emp.workStart || '08:30').trim();
       const workEnd = String(emp.workEnd || '17:30').trim();
-      empSheet.appendRow([emp.id, emp.name, emp.dept, password, workStart, workEnd]);
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', action: 'addEmployee' }))
+
+      const rows = empSheet.getDataRange().getValues();
+      let foundRow = -1;
+      let emptyRow = -1;
+
+      for (let i = 1; i < rows.length; i++) {
+        const rowId = cleanId(rows[i][0]);
+        const rName = String(rows[i][1] || '').trim();
+        if (rowId === cleanId(empId)) {
+          foundRow = i + 1;
+          break;
+        }
+        if (emptyRow === -1 && !rName && (!rowId || rowId === '33')) {
+          emptyRow = i + 1;
+        }
+      }
+
+      if (foundRow > 0) {
+        empSheet.getRange(foundRow, 1).setValue(empId);
+        empSheet.getRange(foundRow, 2).setValue(empName);
+        empSheet.getRange(foundRow, 3).setValue(empDept);
+        empSheet.getRange(foundRow, 4).setValue(password);
+        empSheet.getRange(foundRow, 5).setNumberFormat('@').setValue(workStart);
+        empSheet.getRange(foundRow, 6).setNumberFormat('@').setValue(workEnd);
+      } else if (emptyRow > 0) {
+        empSheet.getRange(emptyRow, 1).setValue(empId);
+        empSheet.getRange(emptyRow, 2).setValue(empName);
+        empSheet.getRange(emptyRow, 3).setValue(empDept);
+        empSheet.getRange(emptyRow, 4).setValue(password);
+        empSheet.getRange(emptyRow, 5).setNumberFormat('@').setValue(workStart);
+        empSheet.getRange(emptyRow, 6).setNumberFormat('@').setValue(workEnd);
+      } else {
+        empSheet.appendRow([empId, empName, empDept, password, workStart, workEnd]);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', action: 'addEmployee', empId }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3.0 ซิงค์รายชื่อพนักงานทั้งหมด (Sync All Employees)
+    if (action === 'syncEmployees') {
+      const employees = data.employees || [];
+      const empSheet = ss.getSheetByName(SHEET_EMPLOYEES);
+      if (!empSheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Sheet not found' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      const existingRows = empSheet.getDataRange().getValues();
+      const existingMap = new Map();
+      for (let i = 1; i < existingRows.length; i++) {
+        const rawId = cleanId(existingRows[i][0]);
+        if (rawId) existingMap.set(rawId, i + 1);
+      }
+
+      employees.forEach(emp => {
+        if (!emp || !emp.id) return;
+        const rawId = cleanId(emp.id);
+        const empId = String(emp.id).trim();
+        const empName = String(emp.name || '').trim();
+        const empDept = String(emp.dept || '').trim();
+        const password = String(emp.password || '1234').trim();
+        const workStart = String(emp.workStart || '08:30').trim();
+        const workEnd = String(emp.workEnd || '17:30').trim();
+
+        if (existingMap.has(rawId)) {
+          const r = existingMap.get(rawId);
+          empSheet.getRange(r, 2).setValue(empName);
+          empSheet.getRange(r, 3).setValue(empDept);
+          empSheet.getRange(r, 4).setValue(password);
+          empSheet.getRange(r, 5).setNumberFormat('@').setValue(workStart);
+          empSheet.getRange(r, 6).setNumberFormat('@').setValue(workEnd);
+        } else {
+          empSheet.appendRow([empId, empName, empDept, password, workStart, workEnd]);
+          existingMap.set(rawId, empSheet.getLastRow());
+        }
+      });
+
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', action: 'syncEmployees', count: employees.length }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -1324,35 +1400,51 @@ function doPost(e) {
           }
           if (record.location && cols.locCol > 0) attSheet.getRange(i + 1, cols.locCol).setValue(record.location);
 
-          // อัปเดตพิกัดเข้างาน
-          const inGps = record.checkInGPS || record.gps;
-          if (inGps && inGps.lat && inGps.lng) {
-            const resolvedIn = resolveBranchLocation(record.empId || rows[i][cols.empIdCol - 1], record.empName || rows[i][cols.empNameCol - 1], record.dept || rows[i][cols.deptCol - 1], inGps.lat, inGps.lng);
-            if (cols.inGpsCol > 0) {
-              attSheet.getRange(i + 1, cols.inGpsCol).setNumberFormat('@').setValue(`${resolvedIn.lat},${resolvedIn.lng}`);
-            }
-            if (cols.inLatCol > 0 && cols.inLngCol > 0) {
-              attSheet.getRange(i + 1, cols.inLatCol).setValue(resolvedIn.lat);
-              attSheet.getRange(i + 1, cols.inLngCol).setValue(resolvedIn.lng);
-            }
-            if (cols.inMapCol > 0) {
-              attSheet.getRange(i + 1, cols.inMapCol).setValue(`https://www.google.com/maps?q=${resolvedIn.lat},${resolvedIn.lng}`);
+          // พิกัดเข้างาน: ล็อกยึดตามพิกัดเดิมที่มีการบันทึกครั้งแรกเท่านั้น (ห้ามแก้ไขหรือเขียนทับพิกัดเดิม)
+          const existingInGps = (cols.inGpsCol > 0 && rows[i][cols.inGpsCol - 1]) ? String(rows[i][cols.inGpsCol - 1]).trim() : '';
+          const existingInLat = (cols.inLatCol > 0 && rows[i][cols.inLatCol - 1]) ? String(rows[i][cols.inLatCol - 1]).trim() : '';
+          const hasExistingIn = (existingInGps && existingInGps !== '-' && existingInGps !== 'null') || 
+                                (existingInLat && existingInLat !== '-' && existingInLat !== 'null');
+
+          if (!hasExistingIn) {
+            // เขียนเฉพาะกรณีที่แถวเดิมยังไม่มีพิกัดเข้างานบันทึกไว้เท่านั้น
+            const inGps = record.checkInGPS || record.gps;
+            if (inGps && inGps.lat && inGps.lng) {
+              const resolvedIn = resolveBranchLocation(record.empId || rows[i][cols.empIdCol - 1], record.empName || rows[i][cols.empNameCol - 1], record.dept || rows[i][cols.deptCol - 1], inGps.lat, inGps.lng);
+              if (cols.inGpsCol > 0) {
+                attSheet.getRange(i + 1, cols.inGpsCol).setNumberFormat('@').setValue(`${resolvedIn.lat},${resolvedIn.lng}`);
+              }
+              if (cols.inLatCol > 0 && cols.inLngCol > 0) {
+                attSheet.getRange(i + 1, cols.inLatCol).setValue(resolvedIn.lat);
+                attSheet.getRange(i + 1, cols.inLngCol).setValue(resolvedIn.lng);
+              }
+              if (cols.inMapCol > 0) {
+                attSheet.getRange(i + 1, cols.inMapCol).setValue(`https://www.google.com/maps?q=${resolvedIn.lat},${resolvedIn.lng}`);
+              }
             }
           }
 
-          // อัปเดตพิกัดออกงาน
-          const outGps = record.checkOutGPS;
-          if (outGps && outGps.lat && outGps.lng) {
-            const resolvedOut = resolveBranchLocation(record.empId || rows[i][cols.empIdCol - 1], record.empName || rows[i][cols.empNameCol - 1], record.dept || rows[i][cols.deptCol - 1], outGps.lat, outGps.lng);
-            if (cols.outGpsCol > 0) {
-              attSheet.getRange(i + 1, cols.outGpsCol).setNumberFormat('@').setValue(`${resolvedOut.lat},${resolvedOut.lng}`);
-            }
-            if (cols.outLatCol > 0 && cols.outLngCol > 0) {
-              attSheet.getRange(i + 1, cols.outLatCol).setValue(resolvedOut.lat);
-              attSheet.getRange(i + 1, cols.outLngCol).setValue(resolvedOut.lng);
-            }
-            if (cols.outMapCol > 0) {
-              attSheet.getRange(i + 1, cols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
+          // พิกัดออกงาน: ล็อกยึดตามพิกัดเดิมที่มีการบันทึกครั้งแรกเท่านั้น (ห้ามแก้ไขหรือเขียนทับพิกัดเดิม)
+          const existingOutGps = (cols.outGpsCol > 0 && rows[i][cols.outGpsCol - 1]) ? String(rows[i][cols.outGpsCol - 1]).trim() : '';
+          const existingOutLat = (cols.outLatCol > 0 && rows[i][cols.outLatCol - 1]) ? String(rows[i][cols.outLatCol - 1]).trim() : '';
+          const hasExistingOut = (existingOutGps && existingOutGps !== '-' && existingOutGps !== 'null') || 
+                                 (existingOutLat && existingOutLat !== '-' && existingOutLat !== 'null');
+
+          if (!hasExistingOut) {
+            // เขียนเฉพาะกรณีที่แถวเดิมยังไม่มีพิกัดออกงานบันทึกไว้เท่านั้น
+            const outGps = record.checkOutGPS;
+            if (outGps && outGps.lat && outGps.lng) {
+              const resolvedOut = resolveBranchLocation(record.empId || rows[i][cols.empIdCol - 1], record.empName || rows[i][cols.empNameCol - 1], record.dept || rows[i][cols.deptCol - 1], outGps.lat, outGps.lng);
+              if (cols.outGpsCol > 0) {
+                attSheet.getRange(i + 1, cols.outGpsCol).setNumberFormat('@').setValue(`${resolvedOut.lat},${resolvedOut.lng}`);
+              }
+              if (cols.outLatCol > 0 && cols.outLngCol > 0) {
+                attSheet.getRange(i + 1, cols.outLatCol).setValue(resolvedOut.lat);
+                attSheet.getRange(i + 1, cols.outLngCol).setValue(resolvedOut.lng);
+              }
+              if (cols.outMapCol > 0) {
+                attSheet.getRange(i + 1, cols.outMapCol).setValue(`https://www.google.com/maps?q=${resolvedOut.lat},${resolvedOut.lng}`);
+              }
             }
           }
 
