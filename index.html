@@ -71,7 +71,7 @@
         
         <!-- Company Logo & Cloud Status -->
         <div class="flex items-center gap-3">
-          <img src="logo.png" alt="THONBURI LAB CENTER" class="h-10 sm:h-12 w-auto object-contain rounded-lg shadow-xs hover:opacity-95 transition cursor-pointer" onclick="location.reload()">
+          <img src="Logo.png" onerror="if(!this.dataset.tried){this.dataset.tried='1'; this.src='logo.png';}" alt="THONBURI LAB CENTER" class="h-10 sm:h-12 w-auto object-contain rounded-lg shadow-xs hover:opacity-95 transition cursor-pointer" onclick="location.reload()">
           
           <!-- Cloud Connection Badge Indicator -->
           <button id="btn-cloud-status" title="คลิกเพื่อตั้งค่าการซิงค์คลาวด์" class="hidden sm:inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full border transition cursor-pointer">
@@ -1200,7 +1200,7 @@
 
       <!-- Header -->
       <div class="text-center relative">
-        <img src="logo.png" alt="THONBURI LAB CENTER" class="h-12 sm:h-14 w-auto object-contain mx-auto rounded-xl shadow-xs mb-3">
+        <img src="Logo.png" onerror="if(!this.dataset.tried){this.dataset.tried='1'; this.src='logo.png';}" alt="THONBURI LAB CENTER" class="h-12 sm:h-14 w-auto object-contain mx-auto rounded-xl shadow-xs mb-3">
         <h3 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">ระบบบันทึกเวลาทำงาน</h3>
         <p class="text-xs text-slate-500 mt-1">เข้าสู่ระบบเพื่อบันทึกและตรวจสอบเวลาทำงาน</p>
       </div>
