@@ -1893,7 +1893,9 @@ function updateAttendanceMap(records) {
         const popupInHtml = `
           <div class="p-3 w-64 text-slate-800 text-xs">
             <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
-              <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+              <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
+                <i data-lucide="user" class="w-4 h-4"></i>
+              </div>
               <div>
                 <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
                 <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
@@ -1962,7 +1964,9 @@ function updateAttendanceMap(records) {
         const popupOutHtml = `
           <div class="p-3 w-64 text-slate-800 text-xs">
             <div class="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
-              <img src="${photoSrc}" alt="${item.empName}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-2xs">
+              <div class="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-xs shrink-0">
+                <i data-lucide="user" class="w-4 h-4"></i>
+              </div>
               <div>
                 <h4 class="font-bold text-slate-900 text-sm leading-tight">${item.empName}</h4>
                 <p class="text-[11px] text-slate-500">${item.empId} • ${item.dept}</p>
@@ -2271,13 +2275,6 @@ function renderAttendanceTable() {
       </span>`;
     }
 
-    const photoSrc = item.photo || generateSampleAvatar(item.empName);
-    const photoHtml = `
-      <div class="flex items-center justify-center">
-        <img src="${photoSrc}" alt="${item.empName}" onclick="openPhotoViewer('${item.id}')" class="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-xs cursor-pointer hover:scale-105 hover:border-sky-500 transition-transform">
-      </div>
-    `;
-
     let locBadge = item.location || 'สำนักงานใหญ่';
     let locIcon = 'building-2';
     if (locBadge === 'Work from Home') locIcon = 'home';
@@ -2355,9 +2352,6 @@ function renderAttendanceTable() {
     }
 
     tr.innerHTML = `
-      <td class="px-3 py-3" data-label="รูปถ่าย">
-        ${photoHtml}
-      </td>
       <td class="px-3 py-3" data-label="พนักงาน">
         <div class="flex items-center gap-2">
           <div>
@@ -2657,13 +2651,7 @@ async function handleClockIn() {
     return;
   }
 
-  let photo = currentCapturedPhoto;
-  if (!photo && cameraStream) {
-    photo = capturePhoto();
-  }
-  if (!photo) {
-    photo = generateSampleAvatar(emp.name);
-  }
+  let photo = null;
 
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, '0');
@@ -2755,13 +2743,7 @@ async function handleClockOut() {
   const seconds = String(now.getSeconds()).padStart(2, '0');
   const checkOutTime = `${hours}:${minutes}:${seconds}`;
 
-  let photo = currentCapturedPhoto;
-  if (!photo && cameraStream) {
-    photo = capturePhoto();
-  }
-  if (!photo) {
-    photo = generateSampleAvatar(emp.name);
-  }
+  let photo = null;
 
   // 1. Acquire real-time fresh GPS directly at punch moment
   const freshGPS = await acquireFreshGPS(emp);
