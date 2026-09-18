@@ -70,6 +70,179 @@ const BRANCH_LOCATIONS = {
   HQ: { name: 'สำนักงานใหญ่', lat: '13.7563', lng: '100.5018', desc: 'สำนักงานใหญ่ (พระนคร)' }
 };
 
+// --- Reverse Geocode Address Engine (ตำบล อำเภอ จังหวัด จากพิกัด GPS) ---
+const ADDRESS_CACHE_KEY = 'timetrack_address_cache_v2';
+let addressCache = {};
+try {
+  const saved = localStorage.getItem(ADDRESS_CACHE_KEY);
+  if (saved) addressCache = JSON.parse(saved);
+} catch (e) {
+  addressCache = {};
+}
+
+// Pre-seeded known locations for instant 0ms rendering
+const PRESEEDED_LOCATIONS = [
+  { lat: 13.6644, lng: 100.4421, addr: 'แขวงแสมดำ เขตบางขุนเทียน กรุงเทพฯ' },
+  { lat: 13.5991, lng: 100.4036, addr: 'ต.พันท้ายนรสิงห์ อ.เมืองสมุทรสาคร จ.สมุทรสาคร' },
+  { lat: 13.6555, lng: 100.4252, addr: 'แขวงแสมดำ เขตบางขุนเทียน กรุงเทพฯ' },
+  { lat: 13.7733, lng: 100.5426, addr: 'แขวงสามเสนใน เขตพญาไท กรุงเทพฯ' },
+  { lat: 13.7101, lng: 100.5018, addr: 'แขวงบางลำภูล่าง เขตคลองสาน กรุงเทพฯ' },
+  { lat: 13.7101, lng: 100.4543, addr: 'แขวงบางหว้า เขตภาษีเจริญ กรุงเทพฯ' },
+  { lat: 13.7442, lng: 100.4608, addr: 'แขวงบางพรม เขตตลิ่งชัน กรุงเทพฯ' },
+  { lat: 13.7326, lng: 100.5390, addr: 'แขวงลุมพินี เขตปทุมวัน กรุงเทพฯ' },
+  { lat: 13.7563, lng: 100.5018, addr: 'แขวงเสาชิงช้า เขตพระนคร กรุงเทพฯ' },
+  { lat: 13.9734, lng: 100.6584, addr: 'ต.คูคต อ.ลำลูกกา จ.ปทุมธานี' }
+];
+
+function getCoordCacheKey(lat, lng) {
+  const numLat = parseFloat(lat);
+  const numLng = parseFloat(lng);
+  if (isNaN(numLat) || isNaN(numLng)) return '';
+  return `${numLat.toFixed(3)},${numLng.toFixed(3)}`;
+}
+
+PRESEEDED_LOCATIONS.forEach(loc => {
+  const key = getCoordCacheKey(loc.lat, loc.lng);
+  if (key && !addressCache[key]) {
+    addressCache[key] = loc.addr;
+  }
+});
+
+function getCachedAddress(lat, lng) {
+  const key = getCoordCacheKey(lat, lng);
+  return addressCache[key] || '';
+}
+
+const inFlightGeocodes = new Map();
+
+function formatThaiAddressParts(subdistrict, district, province) {
+  subdistrict = (subdistrict || '').trim();
+  district = (district || '').trim();
+  province = (province || '').trim();
+
+  const isBkk = province.includes('กรุงเทพ') || district.startsWith('เขต') || subdistrict.startsWith('แขวง');
+  if (isBkk) {
+    if (subdistrict && !subdistrict.startsWith('แขวง')) subdistrict = 'แขวง' + subdistrict;
+    if (district && !district.startsWith('เขต')) district = 'เขต' + district;
+    if (!province || province === 'กรุงเทพมหานคร') province = 'กรุงเทพฯ';
+  } else {
+    if (subdistrict && !subdistrict.startsWith('ต.') && !subdistrict.startsWith('ตำบล')) {
+      subdistrict = 'ต.' + subdistrict.replace(/^Subdistrict\s+/i, '').replace(/\s+Subdistrict$/i, '');
+    }
+    if (district && !district.startsWith('อ.') && !district.startsWith('อำเภอ')) {
+      district = 'อ.' + district.replace(/^District\s+/i, '').replace(/\s+District$/i, '');
+    }
+    if (province && !province.startsWith('จ.') && !province.startsWith('จังหวัด')) {
+      province = 'จ.' + province.replace(/^Province\s+/i, '').replace(/\s+Province$/i, '');
+    }
+  }
+
+  const parts = [subdistrict, district, province].filter(Boolean);
+  return parts.join(' ');
+}
+
+async function fetchReverseGeocode(lat, lng) {
+  const key = getCoordCacheKey(lat, lng);
+  if (!key) return '';
+  if (addressCache[key]) return addressCache[key];
+  if (inFlightGeocodes.has(key)) return inFlightGeocodes.get(key);
+
+  const fetchPromise = (async () => {
+    try {
+      const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=th`;
+      const res = await fetch(bdcUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.localityInfo && data.localityInfo.administrative) {
+          const admin = data.localityInfo.administrative;
+          let subdistrict = '';
+          let district = '';
+          let province = '';
+
+          const l8 = admin.find(a => a.adminLevel === 8);
+          const l6 = admin.find(a => a.adminLevel === 6);
+          const l4 = admin.find(a => a.adminLevel === 4);
+
+          if (l8 && l8.name) subdistrict = l8.name;
+          if (l6 && l6.name) district = l6.name;
+          if (l4 && l4.name) province = l4.name;
+
+          if (!province && data.principalSubdivision) province = data.principalSubdivision;
+          if (!district && data.city) district = data.city;
+          if (!subdistrict && data.locality) subdistrict = data.locality;
+
+          if (!/[a-zA-Z]/.test(subdistrict) && (subdistrict || district)) {
+            const formatted = formatThaiAddressParts(subdistrict, district, province);
+            if (formatted) {
+              addressCache[key] = formatted;
+              try { localStorage.setItem(ADDRESS_CACHE_KEY, JSON.stringify(addressCache)); } catch(e){}
+              return formatted;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('BigDataCloud geocode error:', e);
+    }
+
+    try {
+      const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1&accept-language=th`;
+      const res2 = await fetch(nomUrl, { headers: { 'Accept-Language': 'th' } });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2 && data2.address) {
+          const addr = data2.address;
+          const subdistrict = addr.quarter || addr.subdistrict || addr.city_district || addr.suburb || addr.neighbourhood || '';
+          const district = addr.county || addr.district || addr.city_district || '';
+          const province = addr.province || addr.state || addr.city || '';
+          const formatted = formatThaiAddressParts(subdistrict, district, province);
+          if (formatted) {
+            addressCache[key] = formatted;
+            try { localStorage.setItem(ADDRESS_CACHE_KEY, JSON.stringify(addressCache)); } catch(e){}
+            return formatted;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Nominatim geocode error:', e);
+    }
+
+    return '';
+  })();
+
+  inFlightGeocodes.set(key, fetchPromise);
+  try {
+    const result = await fetchPromise;
+    return result;
+  } finally {
+    inFlightGeocodes.delete(key);
+  }
+}
+
+let pendingGeocodeLookups = [];
+function queueAddressLookup(lat, lng, elementId, inOrOut) {
+  if (!lat || !lng || !elementId) return;
+  pendingGeocodeLookups.push({ lat, lng, elementId, inOrOut });
+}
+
+function processPendingGeocodes() {
+  if (pendingGeocodeLookups.length === 0) return;
+  const queue = [...pendingGeocodeLookups];
+  pendingGeocodeLookups = [];
+
+  queue.forEach(item => {
+    fetchReverseGeocode(item.lat, item.lng).then(addr => {
+      if (addr) {
+        const el = document.getElementById(item.elementId);
+        if (el) {
+          const iconColor = item.inOrOut === 'in' ? 'text-emerald-600' : 'text-rose-600';
+          el.innerHTML = `<span class="${iconColor}">📍</span><span>${addr}</span>`;
+        }
+      }
+    });
+  });
+}
+
 function detectBranchGPS(target = '') {
   let str = '';
   if (typeof target === 'string') {
@@ -1914,9 +2087,12 @@ function updateAttendanceMap(records) {
                 <span class="text-slate-500">วันที่:</span>
                 <span class="text-slate-700">${item.date}</span>
               </div>
-              <div class="flex items-center justify-between">
-                <span class="text-slate-500">สถานที่:</span>
-                <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+              <div class="flex items-start justify-between">
+                <span class="text-slate-500 shrink-0">สถานที่:</span>
+                <div class="text-right">
+                  <span class="text-slate-700 font-medium block">${item.location || 'สำนักงานใหญ่'}</span>
+                  ${getCachedAddress(rawInLat, rawInLng) ? `<span class="text-[10px] text-emerald-700 font-normal block">📍 ${getCachedAddress(rawInLat, rawInLng)}</span>` : ''}
+                </div>
               </div>
               <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
                 <span class="text-slate-400 font-mono text-[10px]">📍 ${rawInLat.toFixed(4)}, ${rawInLng.toFixed(4)}</span>
@@ -1985,9 +2161,12 @@ function updateAttendanceMap(records) {
                 <span class="text-slate-500">วันที่:</span>
                 <span class="text-slate-700">${item.date}</span>
               </div>
-              <div class="flex items-center justify-between">
-                <span class="text-slate-500">สถานที่:</span>
-                <span class="text-slate-700 font-medium">${item.location || 'สำนักงานใหญ่'}</span>
+              <div class="flex items-start justify-between">
+                <span class="text-slate-500 shrink-0">สถานที่:</span>
+                <div class="text-right">
+                  <span class="text-slate-700 font-medium block">${item.location || 'สำนักงานใหญ่'}</span>
+                  ${getCachedAddress(rawOutLat, rawOutLng) ? `<span class="text-[10px] text-rose-700 font-normal block">📍 ${getCachedAddress(rawOutLat, rawOutLng)}</span>` : ''}
+                </div>
               </div>
               <div class="flex items-center justify-between pt-1 border-t border-slate-100 mt-1">
                 <span class="text-slate-400 font-mono text-[10px]">📍 ${rawOutLat.toFixed(4)}, ${rawOutLng.toFixed(4)}</span>
@@ -2288,16 +2467,30 @@ function renderAttendanceTable() {
       const inMapsUrl = `https://www.google.com/maps?q=${inGpsObj.lat},${inGpsObj.lng}`;
       const latFmt = !isNaN(parseFloat(inGpsObj.lat)) ? parseFloat(inGpsObj.lat).toFixed(4) : inGpsObj.lat;
       const lngFmt = !isNaN(parseFloat(inGpsObj.lng)) ? parseFloat(inGpsObj.lng).toFixed(4) : inGpsObj.lng;
+      const cachedInAddr = getCachedAddress(inGpsObj.lat, inGpsObj.lng);
+      const addrInId = `addr-in-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      if (!cachedInAddr) {
+        queueAddressLookup(inGpsObj.lat, inGpsObj.lng, addrInId, 'in');
+      }
+      const inAddrContent = cachedInAddr 
+        ? `<span class="text-emerald-600 shrink-0">📍</span><span>${cachedInAddr}</span>`
+        : `<span class="text-slate-400 font-normal">📍 กำลังระบุตำบล/อำเภอ...</span>`;
+
       inGpsHtml = `
-        <div class="flex items-center gap-1">
-          <button onclick="focusAttendanceMapMarker('${item.id}', 'in')" title="คลิกเพื่อดูหมุดเข้างาน (เขียว) บนแผนที่" class="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 transition cursor-pointer">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-            <span class="font-semibold">เข้า:</span>
-            <span>${latFmt}, ${lngFmt}</span>
-          </button>
-          <a href="${inMapsUrl}" target="_blank" title="เปิด Google Maps (เวลาเข้า)" class="p-0.5 text-slate-400 hover:text-emerald-600 transition">
-            <i data-lucide="external-link" class="w-3 h-3"></i>
-          </a>
+        <div class="space-y-0.5">
+          <div class="flex items-center gap-1">
+            <button onclick="focusAttendanceMapMarker('${item.id}', 'in')" title="คลิกเพื่อดูหมุดเข้างาน (เขียว) บนแผนที่" class="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 transition cursor-pointer">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span class="font-semibold">เข้า:</span>
+              <span>${latFmt}, ${lngFmt}</span>
+            </button>
+            <a href="${inMapsUrl}" target="_blank" title="เปิด Google Maps (เวลาเข้า)" class="p-0.5 text-slate-400 hover:text-emerald-600 transition">
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </div>
+          <div id="${addrInId}" class="text-[11px] text-emerald-800 font-medium pl-1 flex items-start gap-1 leading-snug">
+            ${inAddrContent}
+          </div>
         </div>
       `;
     } else if (item.checkIn) {
@@ -2309,16 +2502,30 @@ function renderAttendanceTable() {
       const outMapsUrl = `https://www.google.com/maps?q=${outGpsObj.lat},${outGpsObj.lng}`;
       const latFmt = !isNaN(parseFloat(outGpsObj.lat)) ? parseFloat(outGpsObj.lat).toFixed(4) : outGpsObj.lat;
       const lngFmt = !isNaN(parseFloat(outGpsObj.lng)) ? parseFloat(outGpsObj.lng).toFixed(4) : outGpsObj.lng;
+      const cachedOutAddr = getCachedAddress(outGpsObj.lat, outGpsObj.lng);
+      const addrOutId = `addr-out-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      if (!cachedOutAddr) {
+        queueAddressLookup(outGpsObj.lat, outGpsObj.lng, addrOutId, 'out');
+      }
+      const outAddrContent = cachedOutAddr 
+        ? `<span class="text-rose-600 shrink-0">📍</span><span>${cachedOutAddr}</span>`
+        : `<span class="text-slate-400 font-normal">📍 กำลังระบุตำบล/อำเภอ...</span>`;
+
       outGpsHtml = `
-        <div class="flex items-center gap-1">
-          <button onclick="focusAttendanceMapMarker('${item.id}', 'out')" title="คลิกเพื่อดูหมุดออกงาน (แดง) บนแผนที่" class="inline-flex items-center gap-1 text-[11px] font-mono text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 transition cursor-pointer">
-            <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
-            <span class="font-semibold">ออก:</span>
-            <span>${latFmt}, ${lngFmt}</span>
-          </button>
-          <a href="${outMapsUrl}" target="_blank" title="เปิด Google Maps (เวลาออก)" class="p-0.5 text-slate-400 hover:text-rose-600 transition">
-            <i data-lucide="external-link" class="w-3 h-3"></i>
-          </a>
+        <div class="space-y-0.5">
+          <div class="flex items-center gap-1">
+            <button onclick="focusAttendanceMapMarker('${item.id}', 'out')" title="คลิกเพื่อดูหมุดออกงาน (แดง) บนแผนที่" class="inline-flex items-center gap-1 text-[11px] font-mono text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 transition cursor-pointer">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+              <span class="font-semibold">ออก:</span>
+              <span>${latFmt}, ${lngFmt}</span>
+            </button>
+            <a href="${outMapsUrl}" target="_blank" title="เปิด Google Maps (เวลาออก)" class="p-0.5 text-slate-400 hover:text-rose-600 transition">
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </div>
+          <div id="${addrOutId}" class="text-[11px] text-rose-800 font-medium pl-1 flex items-start gap-1 leading-snug">
+            ${outAddrContent}
+          </div>
         </div>
       `;
     } else if (item.checkOut) {
@@ -2327,7 +2534,7 @@ function renderAttendanceTable() {
 
     let gpsHtml = '<span class="text-slate-400 text-xs">-</span>';
     if (inGpsHtml || outGpsHtml) {
-      gpsHtml = `<div class="flex flex-col gap-1 min-w-[170px]">${inGpsHtml}${outGpsHtml}</div>`;
+      gpsHtml = `<div class="flex flex-col gap-2 min-w-[210px] max-w-[280px]">${inGpsHtml}${outGpsHtml}</div>`;
     }
 
     let actionsHtml = '';
@@ -2392,6 +2599,9 @@ function renderAttendanceTable() {
 
     tbody.appendChild(tr);
   });
+
+  // Fetch reverse geocodes for any un-cached coordinates in the table
+  processPendingGeocodes();
 
   // Update Leaflet Map with filtered records (Admin Only)
   if (isAdmin) {
